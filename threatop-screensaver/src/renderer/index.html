@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>ThreatOp</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  :root {
+    --blue:#00c8ff; --red:#ff2d2d; --green:#00ff88; --amber:#ffaa00;
+    --bg:#020810; --border:rgba(0,200,255,0.18); --text:#c8e8ff;
+    --text-dim:rgba(200,232,255,0.45); --font:'Courier New',monospace;
+  }
+  html, body { width:100vw; height:100vh; overflow:hidden; background:var(--bg); color:var(--text); font-family:var(--font); cursor:none; }
+
+  .layout {
+    display:grid;
+    grid-template-columns:220px 1fr 220px;
+    grid-template-rows:40px 1fr;
+    width:100vw; height:100vh;
+  }
+
+  /* Header */
+  .header {
+    grid-column:1/4;
+    display:flex; align-items:center; padding:0 24px; gap:16px;
+    border-bottom:1px solid var(--border);
+  }
+  .header-logo { font-size:13px; letter-spacing:0.25em; color:var(--blue); }
+  .header-time { font-size:11px; color:var(--text-dim); letter-spacing:0.15em; }
+  .header-status { margin-left:auto; font-size:10px; color:var(--green); letter-spacing:0.15em; }
+  .header-alert { margin-left:auto; font-size:11px; color:var(--red); letter-spacing:0.2em; display:none; animation:blink 0.8s step-end infinite; }
+  .header-alert.visible { display:block; }
+  @keyframes blink { 50%{opacity:0} }
+
+  /* Left panel */
+  .left-panel {
+    border-right:1px solid var(--border);
+    display:flex; flex-direction:column; padding:16px;
+    gap:12px; overflow:hidden;
+  }
+  .stat-block { display:flex; flex-direction:column; gap:2px; }
+  .stat-label { font-size:9px; letter-spacing:0.15em; color:var(--text-dim); text-transform:uppercase; }
+  .stat-value { font-size:28px; color:var(--blue); letter-spacing:0.05em; }
+  .stat-value.danger { color:var(--red); }
+  .stat-value.safe { color:var(--green); }
+  .divider { height:1px; background:var(--border); }
+  .log { flex:1; overflow:hidden; display:flex; flex-direction:column; gap:2px; }
+  .log-line { font-size:9px; color:var(--text-dim); line-height:1.5; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .log-line.threat { color:var(--red); }
+  .log-line.info { color:var(--blue); }
+  .log-line.ok { color:rgba(0,255,136,0.6); }
+
+  /* Center */
+  .center {
+    display:flex; align-items:center; justify-content:center;
+    position:relative; overflow:hidden;
+  }
+  .canvas-stack { position:relative; }
+  #map-canvas { position:absolute; top:0; left:0; }
+  #arc-canvas { position:absolute; top:0; left:0; z-index:3; pointer-events:none; }
+  #radar-canvas { position:relative; z-index:2; }
+  .grid-bg {
+    position:absolute; top:0; left:0; right:0; bottom:0;
+    background-image:linear-gradient(rgba(0,200,255,0.02) 1px,transparent 1px),linear-gradient(90deg,rgba(0,200,255,0.02) 1px,transparent 1px);
+    background-size:40px 40px; pointer-events:none;
+  }
+
+  /* Right panel */
+  .right-panel {
+    border-left:1px solid var(--border);
+    display:flex; flex-direction:column; padding:16px;
+    gap:8px; overflow:hidden;
+  }
+  .panel-title { font-size:9px; letter-spacing:0.2em; color:var(--blue); text-transform:uppercase; margin-bottom:4px; }
+  .threat-list { flex:1; display:flex; flex-direction:column; gap:6px; overflow:hidden; }
+  .threat-card { padding:8px 10px; border:1px solid var(--red); background:rgba(255,45,45,0.1); display:flex; flex-direction:column; gap:2px; }
+  .threat-card-name { font-size:10px; color:var(--red); }
+  .threat-card-file { font-size:9px; color:var(--text-dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .otx-list { display:flex; flex-direction:column; gap:4px; overflow:hidden; }
+  .otx-row { font-size:9px; color:var(--amber); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+  /* Red alert overlay */
+  .red-alert { display:none; position:fixed; top:0; left:0; right:0; bottom:0; border:4px solid var(--red); pointer-events:none; animation:redpulse 1s ease-in-out infinite; z-index:100; }
+  .red-alert.visible { display:block; }
+  @keyframes redpulse { 0%,100%{opacity:1} 50%{opacity:0.15} }
+
+  /* Scan progress bar at bottom */
+  .scan-bar { position:fixed; bottom:0; left:0; right:0; height:2px; background:var(--border); z-index:50; }
+  .scan-bar-fill { height:100%; background:var(--blue); width:0%; transition:width 0.5s; }
+
+  .map-loading { position:absolute; font-size:9px; color:var(--text-dim); letter-spacing:0.15em; z-index:5; }
+</style>
+</head>
+<body>
+<div class="red-alert" id="red-alert"></div>
+
+<div class="layout">
+  <div class="header">
+    <span class="header-logo">ThreatOp</span>
+    <span class="header-time" id="clock"></span>
+    <span class="header-status" id="header-status">SCANNING — SYSTEM SECURE</span>
+    <span class="header-alert" id="header-alert">THREAT DETECTED — WAKING SYSTEM</span>
+  </div>
+
+  <div class="left-panel">
+    <div class="stat-block">
+      <div class="stat-label">Files scanned</div>
+      <div class="stat-value" id="stat-files">0</div>
+    </div>
+    <div class="stat-block">
+      <div class="stat-label">Threats found</div>
+      <div class="stat-value safe" id="stat-threats">0</div>
+    </div>
+    <div class="stat-block">
+      <div class="stat-label">Scan status</div>
+      <div class="stat-value" id="stat-status" style="font-size:14px;padding-top:6px;">ACTIVE</div>
+    </div>
+    <div class="divider"></div>
+    <div class="log" id="log"></div>
+  </div>
+
+  <div class="center">
+    <div class="grid-bg"></div>
+    <div class="canvas-stack" id="canvas-stack">
+      <canvas id="map-canvas"></canvas>
+      <canvas id="radar-canvas"></canvas>
+      <canvas id="arc-canvas"></canvas>
+      <div class="map-loading" id="map-loading">LOADING MAP...</div>
+    </div>
+  </div>
+
+  <div class="right-panel">
+    <div class="panel-title">Threats detected</div>
+    <div class="threat-list" id="threat-list">
+      <div style="font-size:9px;color:var(--text-dim)">None detected</div>
+    </div>
+    <div class="divider"></div>
+    <div class="panel-title">Live threat intel</div>
+    <div class="otx-list" id="otx-list"></div>
+  </div>
+</div>
+
+<div class="scan-bar"><div class="scan-bar-fill" id="scan-bar-fill"></div></div>
+
+<script>
+var OTX_KEY = 'f2d04de83c3023d73cebf7e18f715964a54bd51187dbcba616ab76b38c7f14d0';
+var state = { fileCount:0, threatCount:0, sweepAngle:0, blips:[], mapBlips:[], arcs:[], canvasSize:0, offscreenMap:null, topoLoaded:false };
+
+// ── Clock ─────────────────────────────────────────────────────────────────
+function updateClock() {
+  document.getElementById('clock').textContent = new Date().toLocaleTimeString('en-US', {hour12:false});
+}
+updateClock();
+setInterval(updateClock, 1000);
+
+// ── Canvas setup ──────────────────────────────────────────────────────────
+var radarCanvas = document.getElementById('radar-canvas');
+var mapCanvas   = document.getElementById('map-canvas');
+var arcCanvas   = document.getElementById('arc-canvas');
+var rctx = radarCanvas.getContext('2d');
+var mctx = mapCanvas.getContext('2d');
+var actx = arcCanvas.getContext('2d');
+
+function resize() {
+  var center = document.querySelector('.center');
+  var size = Math.min(center.clientWidth - 32, center.clientHeight - 32);
+  state.canvasSize = size;
+  radarCanvas.width = radarCanvas.height = size;
+  mapCanvas.width   = mapCanvas.height   = size;
+  arcCanvas.width   = arcCanvas.height   = size;
+  var stack = document.getElementById('canvas-stack');
+  stack.style.width = stack.style.height = size + 'px';
+  if (state.topoLoaded) renderMap();
+}
+
+function mercatorProject(lat, lng, size) {
+  var x = (lng+180)/360*size;
+  var latRad = lat*Math.PI/180;
+  var mercN = Math.log(Math.tan(Math.PI/4+latRad/2));
+  var y = size/2-(size*mercN/(2*Math.PI));
+  return {x:x, y:y};
+}
+
+// ── Map ───────────────────────────────────────────────────────────────────
+var topoData = null;
+
+function loadMap() {
+  fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json')
+    .then(function(r){return r.json();})
+    .then(function(data) {
+      topoData = data;
+      var s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/topojson-client@3/dist/topojson-client.min.js';
+      s.onload = function() { state.topoLoaded=true; document.getElementById('map-loading').style.display='none'; renderMap(); };
+      document.head.appendChild(s);
+    }).catch(function(){document.getElementById('map-loading').textContent='MAP OFFLINE';});
+}
+
+function renderMap() {
+  var size = state.canvasSize; if(!size||!topoData||typeof topojson==='undefined') return;
+  var off = document.createElement('canvas'); off.width=off.height=size;
+  var ctx = off.getContext('2d');
+  ctx.save();
+  ctx.beginPath(); ctx.arc(size/2,size/2,size/2-6,0,Math.PI*2); ctx.clip();
+  ctx.fillStyle='rgba(0,15,35,0.9)'; ctx.fillRect(0,0,size,size);
+  ctx.strokeStyle='rgba(0,200,255,0.04)'; ctx.lineWidth=0.5;
+  for(var lat=-80;lat<=80;lat+=20){ctx.beginPath();var fl=true;for(var ln=-180;ln<=180;ln+=2){var p=mercatorProject(lat,ln,size);fl?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y);fl=false;}ctx.stroke();}
+  for(var lng=-180;lng<=180;lng+=30){ctx.beginPath();var fl2=true;for(var la=-85;la<=85;la+=2){var p2=mercatorProject(la,lng,size);fl2?ctx.moveTo(p2.x,p2.y):ctx.lineTo(p2.x,p2.y);fl2=false;}ctx.stroke();}
+  var countries=topojson.feature(topoData,topoData.objects.countries);
+  ctx.fillStyle='rgba(0,55,85,0.85)'; ctx.strokeStyle='rgba(0,200,255,0.2)'; ctx.lineWidth=0.6;
+  countries.features.forEach(function(f){ctx.beginPath();drawGeo(ctx,f,size);ctx.fill();ctx.stroke();});
+  ctx.restore();
+  state.offscreenMap=off;
+}
+
+function drawGeo(ctx, feature, size) {
+  var g=feature.geometry; if(!g) return;
+  var polys=g.type==='Polygon'?[g.coordinates]:g.type==='MultiPolygon'?g.coordinates:[];
+  polys.forEach(function(poly){poly.forEach(function(ring){var f=true;ring.forEach(function(c){var p=mercatorProject(c[1],c[0],size);f?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y);f=false;});ctx.closePath();});});
+}
+
+function drawMapBlips() {
+  var size=state.canvasSize; if(!size) return;
+  mctx.clearRect(0,0,size,size);
+  mctx.save(); mctx.beginPath(); mctx.arc(size/2,size/2,size/2-6,0,Math.PI*2); mctx.clip();
+  if(state.offscreenMap) mctx.drawImage(state.offscreenMap,0,0);
+  else {mctx.fillStyle='rgba(0,15,35,0.9)';mctx.fillRect(0,0,size,size);}
+  state.mapBlips=state.mapBlips.filter(function(b){return b.age<300;});
+  state.mapBlips.forEach(function(b){
+    b.age++;
+    var pt=mercatorProject(b.lat,b.lng,size);
+    if(pt.x<0||pt.x>size||pt.y<0||pt.y>size) return;
+    var alpha=Math.max(0,1-b.age/300);
+    var pulse=Math.abs(Math.sin(Date.now()/600+b.lat));
+    var color=b.type==='malware'?'255,45,45':b.type==='c2'?'255,170,0':'0,200,255';
+    if(b.age<60){mctx.beginPath();mctx.arc(pt.x,pt.y,b.age*0.4,0,Math.PI*2);mctx.strokeStyle='rgba('+color+','+(1-b.age/60)*0.5+')';mctx.lineWidth=1;mctx.stroke();}
+    mctx.beginPath();mctx.arc(pt.x,pt.y,2.5+pulse*1.5,0,Math.PI*2);mctx.fillStyle='rgba('+color+','+alpha+')';mctx.fill();
+  });
+  mctx.restore();
+}
+
+// ── Arcs ──────────────────────────────────────────────────────────────────
+function spawnArc(fromLat,fromLng,toLat,toLng,color) {
+  var size=state.canvasSize; if(!size) return;
+  var from=mercatorProject(fromLat,fromLng,size);
+  var to=mercatorProject(toLat,toLng,size);
+  state.arcs.push({x1:from.x,y1:from.y,x2:to.x,y2:to.y,progress:0,color:color||'0,200,255',done:false,age:0});
+}
+
+function drawArcs() {
+  var size=state.canvasSize; if(!size) return;
+  actx.clearRect(0,0,size,size);
+  actx.save(); actx.beginPath(); actx.arc(size/2,size/2,size/2-6,0,Math.PI*2); actx.clip();
+  state.arcs=state.arcs.filter(function(a){return a.age<200;});
+  state.arcs.forEach(function(arc) {
+    if(!arc.done) arc.progress=Math.min(1,arc.progress+0.014);
+    if(arc.progress>=1) arc.done=true;
+    if(arc.done) arc.age++;
+    var mx=(arc.x1+arc.x2)/2,my=(arc.y1+arc.y2)/2;
+    var dx=arc.x2-arc.x1,dy=arc.y2-arc.y1;
+    var dist=Math.sqrt(dx*dx+dy*dy);
+    var cpx=mx,cpy=my-dist*0.45;
+    var t=arc.progress;
+    var steps=Math.floor(t*60)+1;
+    var alpha=arc.done?Math.max(0,1-arc.age/200):1;
+    actx.beginPath();
+    for(var i=0;i<=steps;i++){var ti=(i/steps)*t;var bx=Math.pow(1-ti,2)*arc.x1+2*(1-ti)*ti*cpx+Math.pow(ti,2)*arc.x2;var by=Math.pow(1-ti,2)*arc.y1+2*(1-ti)*ti*cpy+Math.pow(ti,2)*arc.y2;i===0?actx.moveTo(bx,by):actx.lineTo(bx,by);}
+    actx.strokeStyle='rgba('+arc.color+','+alpha*0.85+')';actx.lineWidth=1.5;actx.stroke();
+    if(!arc.done){var hx=Math.pow(1-t,2)*arc.x1+2*(1-t)*t*cpx+Math.pow(t,2)*arc.x2;var hy=Math.pow(1-t,2)*arc.y1+2*(1-t)*t*cpy+Math.pow(t,2)*arc.y2;actx.beginPath();actx.arc(hx,hy,3,0,Math.PI*2);actx.fillStyle='rgba('+arc.color+',1)';actx.fill();}
+    if(arc.done&&arc.age<60){var r=arc.age*0.7;actx.beginPath();actx.arc(arc.x2,arc.y2,r,0,Math.PI*2);actx.strokeStyle='rgba('+arc.color+','+(1-arc.age/60)*0.8+')';actx.lineWidth=1.5;actx.stroke();}
+    actx.beginPath();actx.arc(arc.x1,arc.y1,2.5,0,Math.PI*2);actx.fillStyle='rgba('+arc.color+','+alpha*0.6+')';actx.fill();
+  });
+  actx.restore();
+}
+
+// ── Radar ─────────────────────────────────────────────────────────────────
+function drawRadar(ts) {
+  var W=radarCanvas.width,H=radarCanvas.height,cx=W/2,cy=H/2,R=W/2-6;
+  rctx.clearRect(0,0,W,H);
+  rctx.beginPath();rctx.arc(cx,cy,R,0,Math.PI*2);rctx.fillStyle='rgba(2,8,16,0.15)';rctx.fill();
+  rctx.strokeStyle='rgba(0,200,255,0.4)';rctx.lineWidth=1.5;rctx.stroke();
+  for(var i=1;i<=4;i++){rctx.beginPath();rctx.arc(cx,cy,(R/4)*i,0,Math.PI*2);rctx.strokeStyle='rgba(0,200,255,'+(0.04+i*0.015)+')';rctx.lineWidth=1;rctx.stroke();}
+  rctx.strokeStyle='rgba(0,200,255,0.06)';rctx.setLineDash([4,8]);
+  rctx.beginPath();rctx.moveTo(cx,cy-R);rctx.lineTo(cx,cy+R);rctx.stroke();
+  rctx.beginPath();rctx.moveTo(cx-R,cy);rctx.lineTo(cx+R,cy);rctx.stroke();
+  rctx.setLineDash([]);
+  state.sweepAngle=(state.sweepAngle+1.2)%360;
+  var rad=(state.sweepAngle-90)*Math.PI/180;
+  rctx.beginPath();rctx.moveTo(cx,cy);rctx.arc(cx,cy,R,rad-Math.PI/2,rad);rctx.closePath();
+  var sg=rctx.createRadialGradient(cx,cy,0,cx,cy,R);
+  sg.addColorStop(0,'rgba(0,200,255,0)');sg.addColorStop(1,'rgba(0,200,255,0.1)');
+  rctx.fillStyle=sg;rctx.fill();
+  rctx.beginPath();rctx.moveTo(cx,cy);rctx.lineTo(cx+Math.cos(rad)*R,cy+Math.sin(rad)*R);
+  rctx.strokeStyle='rgba(0,200,255,0.9)';rctx.lineWidth=2;rctx.stroke();
+  if(Math.random()<0.04&&state.fileCount>0){var d=(0.3+Math.random()*0.6)*R;var a=rad+(Math.random()-0.5)*0.3;state.blips.push({x:cx+Math.cos(a)*d,y:cy+Math.sin(a)*d,age:0,isThreat:false});}
+  state.blips=state.blips.filter(function(b){return b.age<180;});
+  state.blips.forEach(function(b){
+    b.age++;var alpha=1-b.age/180;
+    if(b.isThreat){var p=Math.abs(Math.sin(ts/400+b.x));rctx.beginPath();rctx.arc(b.x,b.y,5+p*3,0,Math.PI*2);rctx.fillStyle='rgba(255,45,45,'+Math.min(alpha*1.5,0.8)+')';rctx.fill();rctx.beginPath();rctx.arc(b.x,b.y,5,0,Math.PI*2);rctx.fillStyle='#ff2d2d';rctx.fill();b.age=Math.min(b.age,150);}
+    else{rctx.beginPath();rctx.arc(b.x,b.y,2,0,Math.PI*2);rctx.fillStyle='rgba(0,200,255,'+(alpha*0.8)+')';rctx.fill();}
+  });
+  rctx.beginPath();rctx.arc(cx,cy,3,0,Math.PI*2);rctx.fillStyle='rgba(0,200,255,0.8)';rctx.fill();
+  rctx.fillStyle='rgba(0,200,255,0.3)';rctx.font='8px Courier New';
+  ['/etc','/home','/var','/'].forEach(function(l,i){var r=(R/4)*(i+1);rctx.fillText(l,cx+4,cy-r+9);});
+  drawMapBlips();
+  drawArcs();
+  requestAnimationFrame(drawRadar);
+}
+
+// ── OTX ──────────────────────────────────────────────────────────────────
+var HOTSPOTS=[[38,-97],[60,100],[35,105],[51,10],[54,-2],[46,2],[36,138],[-15,-47],[20,77],[32,53],[49,32],[37,128],[23,-102],[1,104],[31,35],[39,35]];
+var COUNTRY_COORDS={'United States':[38,-97],'Russia':[60,100],'China':[35,105],'Germany':[51,10],'United Kingdom':[54,-2],'France':[46,2],'Japan':[36,138],'Brazil':[-15,-47],'India':[20,77],'Iran':[32,53],'Ukraine':[49,32],'South Korea':[37,128],'Mexico':[23,-102],'Singapore':[1,104],'Israel':[31,35],'Turkey':[39,35],'Australia':[-25,133],'Canada':[56,-106]};
+
+function fetchOTX() {
+  fetch('https://otx.alienvault.com/api/v1/pulses/subscribed?limit=10',{headers:{'X-OTX-API-KEY':OTX_KEY}})
+    .then(function(r){return r.json();})
+    .then(function(data) {
+      var list=document.getElementById('otx-list'); list.innerHTML='';
+      (data.results||[]).slice(0,8).forEach(function(pulse) {
+        var row=document.createElement('div'); row.className='otx-row';
+        row.textContent=pulse.name||'Unknown threat';
+        list.appendChild(row);
+        var type=pulse.tags&&pulse.tags.indexOf('ransomware')>=0?'malware':'intel';
+        (pulse.targeted_countries||[]).slice(0,2).forEach(function(country){
+          var coords=COUNTRY_COORDS[country];
+          if(coords){var origin=HOTSPOTS[Math.floor(Math.random()*HOTSPOTS.length)];setTimeout(function(){spawnArc(origin[0],origin[1],coords[0],coords[1],type==='malware'?'255,45,45':'0,200,255');},Math.random()*8000);}
+        });
+        if(pulse.indicator_count>0){var pt=HOTSPOTS[Math.floor(Math.random()*HOTSPOTS.length)];var pt2=HOTSPOTS[Math.floor(Math.random()*HOTSPOTS.length)];state.mapBlips.push({lat:pt[0]+(Math.random()-0.5)*8,lng:pt[1]+(Math.random()-0.5)*8,age:0,type:'intel'});}
+      });
+      addLog('OTX: '+(data.results&&data.results.length||0)+' threat pulses','info');
+    }).catch(function(){addLog('OTX offline','');});
+}
+
+// ── Log ───────────────────────────────────────────────────────────────────
+function addLog(msg, type) {
+  var el=document.getElementById('log');
+  var line=document.createElement('div'); line.className='log-line '+(type||'');
+  line.textContent='['+new Date().toTimeString().slice(0,8)+'] '+msg;
+  el.insertBefore(line,el.firstChild);
+  while(el.children.length>20) el.removeChild(el.lastChild);
+}
+
+// ── Scan events from main process ─────────────────────────────────────────
+window.screensaver.onScanProgress(function(data) {
+  state.fileCount=data.fileCount;
+  document.getElementById('stat-files').textContent=data.fileCount.toLocaleString();
+  var pct=(data.fileCount%1000)/1000*100;
+  document.getElementById('scan-bar-fill').style.width=pct+'%';
+  if(data.fileCount%100===0) addLog('Scanned '+data.fileCount+' files','ok');
+  // Spawn occasional radar blip
+  if(Math.random()<0.3){var cx=radarCanvas.width/2,cy=radarCanvas.height/2,R=radarCanvas.width/2-6;var d=(0.2+Math.random()*0.7)*R;var a=Math.random()*Math.PI*2;state.blips.push({x:cx+Math.cos(a)*d,y:cy+Math.sin(a)*d,age:0,isThreat:false});}
+});
+
+window.screensaver.onThreatFound(function(threat) {
+  state.threatCount++;
+  document.getElementById('stat-threats').textContent=state.threatCount;
+  document.getElementById('stat-threats').className='stat-value danger';
+  document.getElementById('stat-status').textContent='THREAT';
+  document.getElementById('red-alert').classList.add('visible');
+  document.getElementById('header-status').style.display='none';
+  document.getElementById('header-alert').classList.add('visible');
+  // Add to threat list
+  var list=document.getElementById('threat-list');
+  list.querySelectorAll('[style*="color:var(--text-dim)"]').forEach(function(e){e.remove();});
+  var card=document.createElement('div'); card.className='threat-card';
+  card.innerHTML='<div class="threat-card-name">'+threat.virus+'</div><div class="threat-card-file">'+threat.file+'</div>';
+  list.insertBefore(card,list.firstChild);
+  // Spawn red blip
+  var cx=radarCanvas.width/2,cy=radarCanvas.height/2,R=radarCanvas.width/2-6;
+  var d=(0.3+Math.random()*0.6)*R;var a=Math.random()*Math.PI*2;
+  state.blips.push({x:cx+Math.cos(a)*d,y:cy+Math.sin(a)*d,age:0,isThreat:true});
+  // Arc to US
+  var origin=HOTSPOTS[Math.floor(Math.random()*HOTSPOTS.length)];
+  spawnArc(origin[0],origin[1],38,-97,'255,45,45');
+  addLog('THREAT: '+threat.virus,'threat');
+});
+
+window.screensaver.onScanComplete(function(data) {
+  document.getElementById('stat-status').textContent='COMPLETE';
+  addLog('Scan complete: '+data.fileCount+' files','info');
+  document.getElementById('scan-bar-fill').style.width='100%';
+  setTimeout(function(){document.getElementById('scan-bar-fill').style.width='0%';},2000);
+});
+
+// ── Ambient activity ──────────────────────────────────────────────────────
+function spawnAmbientArc() {
+  var from=HOTSPOTS[Math.floor(Math.random()*HOTSPOTS.length)];
+  var to=HOTSPOTS[Math.floor(Math.random()*HOTSPOTS.length)];
+  if(from!==to) spawnArc(from[0],from[1],to[0],to[1],'0,200,255');
+}
+
+function spawnAmbientBlip() {
+  var pt=HOTSPOTS[Math.floor(Math.random()*HOTSPOTS.length)];
+  state.mapBlips.push({lat:pt[0]+(Math.random()-0.5)*8,lng:pt[1]+(Math.random()-0.5)*8,age:Math.floor(Math.random()*80),type:'intel'});
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────
+window.addEventListener('resize',resize);
+resize();
+requestAnimationFrame(drawRadar);
+loadMap();
+fetchOTX();
+setInterval(fetchOTX, 5*60*1000);
+setInterval(spawnAmbientArc, 10000);
+setInterval(spawnAmbientBlip, 5000);
+addLog('ThreatOp screensaver active','info');
+addLog('Background scan initiated','info');
+</script>
+</body>
+</html>
