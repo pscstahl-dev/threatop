@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('warroom', {
   openFileLocation:     (path)   => ipcRenderer.invoke('open-file-location', path),
   updateDefinitions:    ()       => ipcRenderer.invoke('update-definitions'),
   quarantineFile:       (path)   => ipcRenderer.invoke('quarantine-file', path),
+  restoreFile:          (opts)   => ipcRenderer.invoke('restore-file', opts),
   openQuarantineFolder: ()       => ipcRenderer.invoke('open-quarantine-folder'),
 
   onScanEvent: (callback) => {

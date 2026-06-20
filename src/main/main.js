@@ -67,33 +67,61 @@ function ensureQuarantineDir() {
 }
 
 ipcMain.handle('quarantine-file', async (event, filePath) => {
+  ensureQuarantineDir();
+  const fileName = path.basename(filePath);
+  const timestamp = Date.now();
+  const destName = `${timestamp}_${fileName}.quarantine`;
+  const destPath = path.join(QUARANTINE_DIR, destName);
+
+  // Try rename first (fastest)
   try {
-    ensureQuarantineDir();
-    const fileName = path.basename(filePath);
-    const timestamp = Date.now();
-    const destName = `${timestamp}_${fileName}.quarantine`;
-    const destPath = path.join(QUARANTINE_DIR, destName);
     fs.renameSync(filePath, destPath);
     return { success: true, destPath };
-  } catch (err) {
-    try {
-      ensureQuarantineDir();
-      const fileName = path.basename(filePath);
-      const timestamp = Date.now();
-      const destName = `${timestamp}_${fileName}.quarantine`;
-      const destPath = path.join(QUARANTINE_DIR, destName);
-      fs.copyFileSync(filePath, destPath);
-      fs.unlinkSync(filePath);
-      return { success: true, destPath };
-    } catch (err2) {
-      return { success: false, error: err2.message };
-    }
-  }
+  } catch (err) {}
+
+  // Try copy + delete
+  try {
+    fs.copyFileSync(filePath, destPath);
+    fs.unlinkSync(filePath);
+    return { success: true, destPath };
+  } catch (err) {}
+
+  // Fall back to PowerShell with admin rights for protected files
+  return new Promise((resolve) => {
+    const { exec: execCmd } = require('child_process');
+    const cmd = `powershell -command "Copy-Item '${filePath}' '${destPath}'; Remove-Item '${filePath}' -Force"`;
+    execCmd(cmd, (err) => {
+      if (fs.existsSync(destPath)) {
+        resolve({ success: true, destPath });
+      } else {
+        resolve({ success: false, error: err ? err.message : 'Unknown error' });
+      }
+    });
+  });
 });
 
 ipcMain.handle('open-quarantine-folder', async () => {
   ensureQuarantineDir();
   shell.openPath(QUARANTINE_DIR);
+});
+
+ipcMain.handle('restore-file', async (event, { quarantinePath, originalPath }) => {
+  return new Promise((resolve) => {
+    try {
+      fs.renameSync(quarantinePath, originalPath);
+      resolve({ success: true });
+    } catch (err) {
+      const { exec: execCmd } = require('child_process');
+      const cmd = `powershell -command "Copy-Item '${quarantinePath}' '${originalPath}'; Remove-Item '${quarantinePath}' -Force"`;
+      execCmd(cmd, (err2) => {
+        if (fs.existsSync(originalPath)) {
+          resolve({ success: true });
+        } else {
+          resolve({ success: false, error: err2 ? err2.message : 'Unknown error' });
+        }
+      });
+    }
+  });
 });
 
 // ── Scan ──────────────────────────────────────────────────────────────────

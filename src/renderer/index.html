@@ -571,25 +571,49 @@ function addThreatItem(threat) {
   var name=threat.file.split(/[\/\\]/).pop();
   var qBtn=document.createElement('button'); qBtn.className='btn-quarantine'; qBtn.textContent='[ Quarantine ]';
   var lBtn=document.createElement('button'); lBtn.className='btn-locate'; lBtn.textContent='[ Locate ]';
+  var rBtn=document.createElement('button'); rBtn.className='btn-locate'; rBtn.textContent='[ Restore ]'; rBtn.style.display='none';
   var actions=document.createElement('div'); actions.className='threat-actions';
-  actions.appendChild(qBtn); actions.appendChild(lBtn);
+  actions.appendChild(qBtn); actions.appendChild(lBtn); actions.appendChild(rBtn);
   var nameDiv=document.createElement('div'); nameDiv.className='threat-name'; nameDiv.textContent='! '+threat.virus;
   var pathDiv=document.createElement('div'); pathDiv.className='threat-path'; pathDiv.textContent=threat.file;
   var timeDiv=document.createElement('div'); timeDiv.className='threat-time'; timeDiv.textContent=new Date(threat.ts).toTimeString().slice(0,8)+' - '+name;
   item.appendChild(nameDiv); item.appendChild(pathDiv); item.appendChild(timeDiv); item.appendChild(actions);
+  var quarantinedPath = null;
   qBtn.addEventListener('click', function(e) {
     e.stopPropagation();
     qBtn.textContent='[ Quarantining... ]'; qBtn.disabled=true;
     window.warroom.quarantineFile(threat.file).then(function(result) {
       if (result.success) {
+        quarantinedPath = result.destPath;
         qBtn.textContent='[ Quarantined ]'; qBtn.style.color='var(--green)';
-        item.style.opacity='0.5';
+        item.style.opacity='0.7';
+        rBtn.style.display='';
         state.quarantineCount++;
         document.getElementById('metric-quarantine').textContent=state.quarantineCount;
         log('Quarantined: '+name, 'info');
       } else {
         qBtn.textContent='[ Failed ]'; qBtn.style.color='var(--amber)';
+        qBtn.disabled=false;
         log('Quarantine failed: '+result.error, 'error');
+      }
+    });
+  });
+  rBtn.addEventListener('click', function(e) {
+    e.stopPropagation();
+    if (!quarantinedPath) return;
+    rBtn.textContent='[ Restoring... ]'; rBtn.disabled=true;
+    window.warroom.restoreFile({ quarantinePath: quarantinedPath, originalPath: threat.file }).then(function(result) {
+      if (result.success) {
+        rBtn.textContent='[ Restored ]'; rBtn.style.color='var(--amber)';
+        qBtn.textContent='[ Quarantine ]'; qBtn.style.color=''; qBtn.disabled=false;
+        item.style.opacity='1';
+        state.quarantineCount = Math.max(0, state.quarantineCount - 1);
+        document.getElementById('metric-quarantine').textContent=state.quarantineCount;
+        log('Restored: '+name, 'info');
+      } else {
+        rBtn.textContent='[ Restore failed ]';
+        rBtn.disabled=false;
+        log('Restore failed: '+result.error, 'error');
       }
     });
   });
