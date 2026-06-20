@@ -1,7 +1,7 @@
 {
   "name": "threatop-screensaver",
   "version": "0.1.0",
-  "description": "ThreatOp — War Room screensaver",
+  "description": "Threat-Op — War Room screensaver",
   "main": "src/main/main.js",
   "scripts": {
     "start": "electron . --screensaver",
@@ -15,17 +15,16 @@
     "appId": "com.threatop.screensaver",
     "productName": "ThreatOp Screensaver",
     "win": {
-      "target": "nsis",
-      "fileAssociations": [
-        {
-          "ext": "scr",
-          "name": "Screensaver"
-        }
-      ]
+      "target": "nsis"
     },
     "nsis": {
-      "installerIcon": "build/icon.ico",
       "runAfterFinish": false
-    }
+    },
+    "extraResources": [
+      {
+        "from": "install-screensaver.bat",
+        "to": "../Install Screensaver.bat"
+      }
+    ]
   }
 }
