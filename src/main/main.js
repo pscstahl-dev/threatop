@@ -71,13 +71,11 @@ ipcMain.handle('quarantine-file', async (event, filePath) => {
     ensureQuarantineDir();
     const fileName = path.basename(filePath);
     const timestamp = Date.now();
-    // Rename with .quarantine extension so it can't execute
     const destName = `${timestamp}_${fileName}.quarantine`;
     const destPath = path.join(QUARANTINE_DIR, destName);
     fs.renameSync(filePath, destPath);
     return { success: true, destPath };
   } catch (err) {
-    // If rename fails (e.g. cross-drive), try copy + delete
     try {
       ensureQuarantineDir();
       const fileName = path.basename(filePath);
@@ -123,7 +121,8 @@ ipcMain.handle('start-scan', async (event, { paths, mode }) => {
   if (activeScan) return { error: 'Scan already running' };
 
   const { clamscan } = findClamAV();
-  const args = ['--recursive', '--infected', '--no-summary', '--stdout'];
+  // Remove --infected so we get ALL file output for counting
+  const args = ['--recursive', '--no-summary', '--stdout'];
   if (mode === 'full') args.push('--scan-archive=yes', '--max-recursion=10');
   args.push(...paths);
 
@@ -133,31 +132,48 @@ ipcMain.handle('start-scan', async (event, { paths, mode }) => {
   let fileCount = 0;
   let threatCount = 0;
   const threats = [];
+  let buffer = '';
 
   proc.stdout.on('data', (data) => {
-    const lines = data.toString().split('\n').filter(Boolean);
+    buffer += data.toString();
+    const lines = buffer.split('\n');
+    buffer = lines.pop();
+
     lines.forEach((line) => {
+      line = line.trim();
+      if (!line) return;
+
       const foundMatch = line.match(/^(.+):\s+(.+)\s+FOUND$/i);
       const okMatch    = line.match(/^(.+):\s+OK$/i);
+
       if (foundMatch) {
-        fileCount++; threatCount++;
+        fileCount++;
+        threatCount++;
         const threat = { file: foundMatch[1].trim(), virus: foundMatch[2].trim(), ts: Date.now() };
         threats.push(threat);
         mainWindow?.webContents.send('scan-event', { type: 'threat', ...threat, fileCount, threatCount });
       } else if (okMatch) {
         fileCount++;
-        mainWindow?.webContents.send('scan-event', { type: 'clean', file: okMatch[1].trim(), fileCount, threatCount });
+        // Update every 10 files to keep UI responsive without flooding IPC
+        if (fileCount % 10 === 0) {
+          mainWindow?.webContents.send('scan-event', { type: 'clean', file: okMatch[1].trim(), fileCount, threatCount });
+        }
       }
     });
   });
 
   proc.stderr.on('data', (data) => {
-    mainWindow?.webContents.send('scan-event', { type: 'error', message: data.toString() });
+    const msg = data.toString();
+    // Filter out noisy LibClamAV errors
+    if (!msg.includes('LibClamAV') && !msg.includes('fmap')) {
+      mainWindow?.webContents.send('scan-event', { type: 'error', message: msg });
+    }
   });
 
   return new Promise((resolve) => {
     proc.on('close', (code) => {
       activeScan = null;
+      // Send final count on completion
       mainWindow?.webContents.send('scan-event', { type: 'complete', exitCode: code, fileCount, threatCount, threats });
       resolve({ fileCount, threatCount, threats });
     });

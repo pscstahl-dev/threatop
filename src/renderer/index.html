@@ -197,7 +197,7 @@ function updateScanButton() {
 
 function resizeCanvases() {
   var center = document.querySelector('.center');
-  var size = Math.min(center.clientWidth - 32, center.clientHeight - 100);
+  var size = Math.max(100, Math.min(center.clientWidth - 32, center.clientHeight - 100));
   state.canvasSize = size;
   radarCanvas.width = radarCanvas.height = size;
   mapCanvas.width   = mapCanvas.height   = size;
@@ -645,9 +645,10 @@ function handleScanEvent(ev) {
     setMetrics(); addThreatItem(ev); spawnThreatBlip(); setRedAlert(true);
     log('THREAT: '+ev.virus+' in '+ev.file.split(/[/\\]/).pop(),'threat');
   } else if (ev.type==='clean') {
-    state.fileCount=ev.fileCount; setMetrics();
+    state.fileCount=ev.fileCount;
+    document.getElementById('metric-files').textContent=state.fileCount.toLocaleString();
     document.getElementById('progress-fill').style.width=Math.min(95,(state.fileCount%500)/500*95)+'%';
-    if (ev.fileCount%50===0) log('Scanned '+ev.fileCount+' files','ok');
+    if (ev.fileCount%200===0) log('Scanned '+ev.fileCount+' files','ok');
   } else if (ev.type==='complete') {
     setScanningState(false); clearInterval(state.timerInterval);
     if (state.scanUnsubscribe){state.scanUnsubscribe();state.scanUnsubscribe=null;}
