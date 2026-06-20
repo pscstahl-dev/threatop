@@ -2,41 +2,53 @@
 
 const { app, BrowserWindow, ipcMain, screen, powerSaveBlocker } = require('electron');
 const path = require('path');
-const { spawn, exec } = require('child_process');
+const { spawn } = require('child_process');
 const fs = require('fs');
-const os = require('os');
 
 let mainWindow;
 let activeScan = null;
+let powerBlockerId = null;
+let mouseInterval = null;
 let mouseStartX = null;
 let mouseStartY = null;
-let powerBlockerId = null;
+let initialized = false;
 
-// ── Args: Windows passes /s (run), /p (preview), /c (configure) ──────────
 const args = process.argv.slice(1);
 const isPreview = args.some(a => a.toLowerCase().startsWith('/p'));
 const isConfigure = args.some(a => a.toLowerCase().startsWith('/c'));
 
-if (isConfigure) {
-  // Nothing to configure — just quit
-  app.quit();
+if (isConfigure) app.quit();
+
+function exitScreensaver(threat) {
+  if (mouseInterval) { clearInterval(mouseInterval); mouseInterval = null; }
+  if (activeScan) { activeScan.kill(); activeScan = null; }
+  if (powerBlockerId !== null) { powerSaveBlocker.stop(powerBlockerId); powerBlockerId = null; }
+  if (mainWindow) { mainWindow.destroy(); mainWindow = null; }
+  if (threat) {
+    const mainAppPath = 'C:\\Program Files\\War Room\\War Room.exe';
+    if (fs.existsSync(mainAppPath)) {
+      const { spawn: sp } = require('child_process');
+      sp(mainAppPath, ['--threat', JSON.stringify(threat)], { detached: true, stdio: 'ignore' }).unref();
+    }
+  }
+  setTimeout(() => app.quit(), 500);
 }
 
 function createWindow() {
-  const { width, height } = screen.getPrimaryDisplay().workAreaSize;
-  const bounds = screen.getPrimaryDisplay().bounds;
+  const display = screen.getPrimaryDisplay();
+  const { x, y, width, height } = display.bounds;
 
   mainWindow = new BrowserWindow({
-    x: bounds.x,
-    y: bounds.y,
-    width: bounds.width,
-    height: bounds.height,
+    x: isPreview ? 100 : x,
+    y: isPreview ? 100 : y,
+    width: isPreview ? 600 : width,
+    height: isPreview ? 400 : height,
     fullscreen: !isPreview,
-    frame: false,
+    frame: isPreview,
     alwaysOnTop: !isPreview,
-    skipTaskbar: true,
-    resizable: false,
-    movable: false,
+    skipTaskbar: !isPreview,
+    resizable: isPreview,
+    movable: isPreview,
     backgroundColor: '#020810',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -47,57 +59,56 @@ function createWindow() {
 
   mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
 
-  // Prevent display sleep while screensaver is running
+  // Preview mode — close on any click or keypress
+  if (isPreview) {
+    mainWindow.webContents.on('did-finish-load', () => {
+      mainWindow.webContents.on('before-input-event', (event, input) => {
+        if (input.type === 'keyDown') mainWindow.close();
+      });
+    });
+    mainWindow.on('blur', () => mainWindow && mainWindow.close());
+    return;
+  }
+
+  // Full screensaver mode
   powerBlockerId = powerSaveBlocker.start('prevent-display-sleep');
 
-  // Track initial mouse position — exit on move
-  const { x: initX, y: initY } = screen.getCursorScreenPoint();
-  mouseStartX = initX;
-  mouseStartY = initY;
+  mainWindow.webContents.on('did-finish-load', () => {
+    if (!initialized) {
+      initialized = true;
 
-  if (!isPreview) {
-    // Poll mouse position every 200ms
-    const mouseInterval = setInterval(() => {
-      const { x, y } = screen.getCursorScreenPoint();
-      const dx = Math.abs(x - mouseStartX);
-      const dy = Math.abs(y - mouseStartY);
-      if (dx > 5 || dy > 5) {
-        clearInterval(mouseInterval);
-        exitScreensaver();
-      }
-    }, 200);
+      // Record starting mouse position
+      const pos = screen.getCursorScreenPoint();
+      mouseStartX = pos.x;
+      mouseStartY = pos.y;
 
-    // Exit on any keypress
-    mainWindow.webContents.on('before-input-event', (event, input) => {
-      if (input.type === 'keyDown') exitScreensaver();
-    });
+      // Poll mouse every 100ms — exit on movement > 2px
+      mouseInterval = setInterval(() => {
+        try {
+          const cur = screen.getCursorScreenPoint();
+          const dx = Math.abs(cur.x - mouseStartX);
+          const dy = Math.abs(cur.y - mouseStartY);
+          if (dx > 2 || dy > 2) {
+            clearInterval(mouseInterval);
+            mouseInterval = null;
+            exitScreensaver();
+          }
+        } catch (e) {
+          exitScreensaver();
+        }
+      }, 100);
 
-    // Exit on click
-    mainWindow.webContents.on('did-finish-load', () => {
-      mainWindow.webContents.executeJavaScript(`
-        document.addEventListener('mousedown', () => { require('electron').ipcRenderer.send('exit-screensaver'); });
-      `).catch(() => {});
-    });
-  }
+      // Exit on any keypress
+      mainWindow.webContents.on('before-input-event', (event, input) => {
+        if (input.type === 'keyDown') exitScreensaver();
+      });
 
-  // Start background scan after 2 seconds
-  setTimeout(startBackgroundScan, 2000);
-}
-
-function exitScreensaver(threat) {
-  if (activeScan) { activeScan.kill(); activeScan = null; }
-  if (powerBlockerId !== null) powerSaveBlocker.stop(powerBlockerId);
-
-  if (threat) {
-    // Launch main ThreatOp app with threat info
-    const mainApp = path.join('C:\\Program Files\\War Room\\War Room.exe');
-    if (fs.existsSync(mainApp)) {
-      const { spawn: sp } = require('child_process');
-      sp(mainApp, ['--threat', JSON.stringify(threat)], { detached: true, stdio: 'ignore' }).unref();
+      // Start background scan after 3 seconds
+      setTimeout(startBackgroundScan, 3000);
     }
-  }
+  });
 
-  app.quit();
+  mainWindow.on('closed', () => { mainWindow = null; });
 }
 
 // ── ClamAV ────────────────────────────────────────────────────────────────
@@ -114,11 +125,9 @@ function findClamAV() {
 
 function startBackgroundScan() {
   const clamscan = findClamAV();
-  const args = ['--recursive', '--infected', '--no-summary', '--stdout', 'C:\\Users'];
-
-  const proc = spawn(clamscan, args, { windowsHide: true });
+  const scanArgs = ['--recursive', '--infected', '--no-summary', '--stdout', 'C:\\Users'];
+  const proc = spawn(clamscan, scanArgs, { windowsHide: true });
   activeScan = proc;
-
   let fileCount = 0;
 
   proc.stdout.on('data', (data) => {
@@ -126,26 +135,20 @@ function startBackgroundScan() {
     lines.forEach((line) => {
       const foundMatch = line.match(/^(.+):\s+(.+)\s+FOUND$/i);
       const okMatch    = line.match(/^(.+):\s+OK$/i);
-
       if (foundMatch) {
         const threat = { file: foundMatch[1].trim(), virus: foundMatch[2].trim(), ts: Date.now() };
-        // Send threat to renderer for red alert display
         mainWindow?.webContents.send('threat-found', threat);
-        // Wake screen and exit after 3 seconds
         setTimeout(() => exitScreensaver(threat), 3000);
       } else if (okMatch) {
         fileCount++;
-        if (fileCount % 25 === 0) {
-          mainWindow?.webContents.send('scan-progress', { fileCount });
-        }
+        if (fileCount % 25 === 0) mainWindow?.webContents.send('scan-progress', { fileCount });
       }
     });
   });
 
-  proc.on('close', (code) => {
+  proc.on('close', () => {
     activeScan = null;
     mainWindow?.webContents.send('scan-complete', { fileCount });
-    // Restart scan after 30 min
     setTimeout(startBackgroundScan, 30 * 60 * 1000);
   });
 }
