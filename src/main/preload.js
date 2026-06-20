@@ -7,6 +7,8 @@ contextBridge.exposeInMainWorld('warroom', {
   checkClamAV:          ()       => ipcRenderer.invoke('check-clamav'),
   startScan:            (opts)   => ipcRenderer.invoke('start-scan', opts),
   abortScan:            ()       => ipcRenderer.invoke('abort-scan'),
+  pauseScan:            ()       => ipcRenderer.invoke('pause-scan'),
+  resumeScan:           ()       => ipcRenderer.invoke('resume-scan'),
   openFileLocation:     (path)   => ipcRenderer.invoke('open-file-location', path),
   updateDefinitions:    ()       => ipcRenderer.invoke('update-definitions'),
   quarantineFile:       (path)   => ipcRenderer.invoke('quarantine-file', path),

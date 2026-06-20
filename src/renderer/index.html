@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>War Room</title>
+<title>Threat-Op</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   :root {
@@ -97,7 +97,7 @@
 <body>
 <div class="red-alert" id="red-alert"></div>
 <div class="titlebar">
-  <span class="titlebar-logo">ThreatOp</span>
+  <span class="titlebar-logo">Threat-Op</span>
   <span class="titlebar-status" id="titlebar-status">SYSTEMS NOMINAL</span>
   <span class="titlebar-alert" id="titlebar-alert">THREAT DETECTED</span>
   <span class="otx-badge" id="otx-badge">OTX CONNECTING...</span>
@@ -142,6 +142,7 @@
         <button class="btn" id="btn-select">Select folder / file</button>
         <button class="btn btn-primary" id="btn-scan" disabled>Deploy scan</button>
         <button class="btn btn-danger" id="btn-abort">Stop scan</button>
+        <button class="btn" id="btn-pause" style="display:none;border-color:var(--amber);color:var(--amber);background:rgba(255,170,0,0.08);">Pause</button>
         <button class="btn" id="btn-quarantine-folder" style="margin-left:auto;">[ Quarantine folder ]</button>
         <div class="mode-toggle">
           <button class="mode-btn active" data-mode="quick">Quick</button>
@@ -180,7 +181,8 @@ var state = {
   canvasSize: 0,
   offscreenMap: null,
   topoLoaded: false,
-  quarantineCount: 0
+  quarantineCount: 0,
+  paused: false
 };
 
 var radarCanvas = document.getElementById('radar-canvas');
@@ -197,7 +199,7 @@ function updateScanButton() {
 
 function resizeCanvases() {
   var center = document.querySelector('.center');
-  var size = Math.max(100, Math.min(center.clientWidth - 32, center.clientHeight - 100));
+  var size = Math.min(center.clientWidth - 32, center.clientHeight - 100);
   state.canvasSize = size;
   radarCanvas.width = radarCanvas.height = size;
   mapCanvas.width   = mapCanvas.height   = size;
@@ -622,8 +624,13 @@ function startScan() {
 
 function setScanningState(scanning) {
   state.scanning=scanning;
+  state.paused=false;
   document.getElementById('btn-scan').style.display=scanning?'none':'';
   document.getElementById('btn-abort').style.display=scanning?'':'none';
+  document.getElementById('btn-pause').style.display=scanning?'':'none';
+  document.getElementById('btn-pause').textContent='Pause';
+  document.getElementById('btn-pause').style.borderColor='var(--amber)';
+  document.getElementById('btn-pause').style.color='var(--amber)';
   document.getElementById('btn-quick-pc').disabled=scanning;
   document.getElementById('btn-full-pc').disabled=scanning;
   document.getElementById('btn-select').disabled=scanning;
@@ -701,6 +708,32 @@ document.getElementById('btn-scan').addEventListener('click', function() {
   startScan();
 });
 
+document.getElementById('btn-pause').addEventListener('click', function() {
+  if (!state.paused) {
+    window.warroom.pauseScan().then(function(result) {
+      if (result.paused) {
+        state.paused = true;
+        state.scanning = false;
+        document.getElementById('btn-pause').textContent = 'Resume';
+        document.getElementById('btn-pause').style.borderColor = 'var(--green)';
+        document.getElementById('btn-pause').style.color = 'var(--green)';
+        log('Scan paused', 'info');
+      }
+    });
+  } else {
+    window.warroom.resumeScan().then(function(result) {
+      if (result.resumed) {
+        state.paused = false;
+        state.scanning = true;
+        document.getElementById('btn-pause').textContent = 'Pause';
+        document.getElementById('btn-pause').style.borderColor = 'var(--amber)';
+        document.getElementById('btn-pause').style.color = 'var(--amber)';
+        log('Scan resumed', 'info');
+      }
+    });
+  }
+});
+
 document.getElementById('btn-abort').addEventListener('click', function() {
   window.warroom.abortScan().then(function() {
     setScanningState(false); clearInterval(state.timerInterval);
@@ -745,7 +778,7 @@ fetchOTX();
 setInterval(fetchOTX, 5*60*1000);
 setInterval(function(){if(state.mapBlips.length<60)spawnRandomGlobalBlip(['intel']);},4000);
 setInterval(spawnAmbientArc, 8000);
-log('ThreatOp initialized','info');
+log('Threat-Op initialized','info');
 log('Built by law enforcement. Designed to hunt threats.','info');
 </script>
 </body>

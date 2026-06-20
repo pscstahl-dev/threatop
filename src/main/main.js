@@ -98,6 +98,7 @@ ipcMain.handle('open-quarantine-folder', async () => {
 
 // ── Scan ──────────────────────────────────────────────────────────────────
 let activeScan = null;
+let scanPaused = false;
 
 ipcMain.handle('select-target', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
@@ -181,8 +182,32 @@ ipcMain.handle('start-scan', async (event, { paths, mode }) => {
 });
 
 ipcMain.handle('abort-scan', async () => {
-  if (activeScan) { activeScan.kill(); activeScan = null; return { aborted: true }; }
+  if (activeScan) { activeScan.kill(); activeScan = null; scanPaused = false; return { aborted: true }; }
   return { aborted: false };
+});
+
+ipcMain.handle('pause-scan', async () => {
+  if (activeScan && !scanPaused) {
+    // Suspend the process on Windows using taskkill /F is too aggressive
+    // Instead we use the undocumented NtSuspendProcess via a PowerShell call
+    const pid = activeScan.pid;
+    const { exec: execCmd } = require('child_process');
+    execCmd(`powershell -command "$proc = Get-Process -Id ${pid}; $proc.Suspend()"`, () => {});
+    scanPaused = true;
+    return { paused: true };
+  }
+  return { paused: false };
+});
+
+ipcMain.handle('resume-scan', async () => {
+  if (activeScan && scanPaused) {
+    const pid = activeScan.pid;
+    const { exec: execCmd } = require('child_process');
+    execCmd(`powershell -command "$proc = Get-Process -Id ${pid}; $proc.Resume()"`, () => {});
+    scanPaused = false;
+    return { resumed: true };
+  }
+  return { resumed: false };
 });
 
 ipcMain.handle('open-file-location', async (event, filePath) => {
