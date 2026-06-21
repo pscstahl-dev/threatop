@@ -41,12 +41,24 @@ app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 
 // ── ClamAV detection ──────────────────────────────────────────────────────
-function findClamAV() {
-  const bundled = path.join(process.resourcesPath || '', 'clamav-bin', 'clamscan.exe');
-  if (fs.existsSync(bundled)) return { clamscan: bundled };
+const CLAMAV_INSTALL_DIR = 'C:\\ClamAV';
 
+function findClamAV() {
+  // Check if we've already installed ClamAV to C:\ClamAV
+  const installedPath = path.join(CLAMAV_INSTALL_DIR, 'clamscan.exe');
+  if (fs.existsSync(installedPath)) return { clamscan: installedPath };
+
+  // Check bundled ClamAV in app resources
+  const bundledDir = path.join(process.resourcesPath || path.join(__dirname, '../../'), 'clamav-bin');
+  const bundledPath = path.join(bundledDir, 'clamscan.exe');
+  if (fs.existsSync(bundledPath)) {
+    // Install bundled ClamAV to C:\ClamAV for future use
+    installBundledClamAV(bundledDir);
+    return { clamscan: bundledPath };
+  }
+
+  // Check common install paths
   const winPaths = [
-    'C:\\ClamAV\\clamscan.exe',
     'C:\\Program Files\\ClamAV\\clamscan.exe',
     'C:\\Program Files (x86)\\ClamAV\\clamscan.exe',
     path.join(os.homedir(), 'scoop', 'apps', 'clamav', 'current', 'clamscan.exe'),
@@ -55,6 +67,33 @@ function findClamAV() {
     if (fs.existsSync(p)) return { clamscan: p };
   }
   return { clamscan: 'clamscan' };
+}
+
+function installBundledClamAV(bundledDir) {
+  try {
+    if (!fs.existsSync(CLAMAV_INSTALL_DIR)) {
+      fs.mkdirSync(CLAMAV_INSTALL_DIR, { recursive: true });
+    }
+    // Copy bundled ClamAV to C:\ClamAV
+    const { execSync } = require('child_process');
+    execSync(`xcopy "${bundledDir}\\*" "${CLAMAV_INSTALL_DIR}\\" /E /I /Y /Q`, { windowsHide: true });
+    // Run freshclam to get virus definitions
+    const freshclam = path.join(CLAMAV_INSTALL_DIR, 'freshclam.exe');
+    const conf = path.join(CLAMAV_INSTALL_DIR, 'freshclam.conf');
+    if (!fs.existsSync(conf)) {
+      const sampleConf = path.join(CLAMAV_INSTALL_DIR, 'conf_examples', 'freshclam.conf.sample');
+      if (fs.existsSync(sampleConf)) {
+        let confContent = fs.readFileSync(sampleConf, 'utf8');
+        confContent = confContent.replace(/^Example/m, '#Example');
+        fs.writeFileSync(conf, confContent);
+      }
+    }
+    if (fs.existsSync(freshclam)) {
+      spawn(freshclam, [], { windowsHide: true, detached: true }).unref();
+    }
+  } catch (e) {
+    console.log('ClamAV install error:', e.message);
+  }
 }
 
 // ── Quarantine ────────────────────────────────────────────────────────────
@@ -243,8 +282,9 @@ ipcMain.handle('open-file-location', async (event, filePath) => {
 });
 
 ipcMain.handle('update-definitions', async () => {
+  const freshclam = path.join(CLAMAV_INSTALL_DIR, 'freshclam.exe');
   return new Promise((resolve) => {
-    const proc = spawn('C:\\ClamAV\\freshclam.exe', [], { windowsHide: true });
+    const proc = spawn(freshclam, [], { windowsHide: true });
     let log = '';
     proc.stdout.on('data', d => { log += d.toString(); });
     proc.stderr.on('data', d => { log += d.toString(); });
