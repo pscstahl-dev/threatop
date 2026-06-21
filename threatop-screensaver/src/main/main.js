@@ -2,7 +2,7 @@
 
 const { app, BrowserWindow, ipcMain, screen, powerSaveBlocker } = require('electron');
 const path = require('path');
-const { spawn } = require('child_process');
+const { spawn, execSync } = require('child_process');
 const fs = require('fs');
 
 let mainWindow;
@@ -18,6 +18,47 @@ const isPreview = args.some(a => a.toLowerCase().startsWith('/p'));
 const isConfigure = args.some(a => a.toLowerCase().startsWith('/c'));
 
 if (isConfigure) app.quit();
+
+// ── ClamAV ────────────────────────────────────────────────────────────────
+const CLAMAV_INSTALL_DIR = 'C:\\ClamAV';
+
+function findClamAV() {
+  const installedPath = path.join(CLAMAV_INSTALL_DIR, 'clamscan.exe');
+  if (fs.existsSync(installedPath)) return installedPath;
+
+  const bundledDir = path.join(process.resourcesPath || path.join(__dirname, '../../'), 'clamav-bin');
+  const bundledPath = path.join(bundledDir, 'clamscan.exe');
+  if (fs.existsSync(bundledPath)) {
+    installBundledClamAV(bundledDir);
+    return bundledPath;
+  }
+
+  return 'clamscan';
+}
+
+function installBundledClamAV(bundledDir) {
+  try {
+    if (!fs.existsSync(CLAMAV_INSTALL_DIR)) {
+      fs.mkdirSync(CLAMAV_INSTALL_DIR, { recursive: true });
+    }
+    execSync(`xcopy "${bundledDir}\\*" "${CLAMAV_INSTALL_DIR}\\" /E /I /Y /Q`, { windowsHide: true });
+    const freshclam = path.join(CLAMAV_INSTALL_DIR, 'freshclam.exe');
+    const conf = path.join(CLAMAV_INSTALL_DIR, 'freshclam.conf');
+    if (!fs.existsSync(conf)) {
+      const sampleConf = path.join(CLAMAV_INSTALL_DIR, 'conf_examples', 'freshclam.conf.sample');
+      if (fs.existsSync(sampleConf)) {
+        let confContent = fs.readFileSync(sampleConf, 'utf8');
+        confContent = confContent.replace(/^Example/m, '#Example');
+        fs.writeFileSync(conf, confContent);
+      }
+    }
+    if (fs.existsSync(freshclam)) {
+      spawn(freshclam, [], { windowsHide: true, detached: true }).unref();
+    }
+  } catch (e) {
+    console.log('ClamAV install error:', e.message);
+  }
+}
 
 function exitScreensaver(threat) {
   if (mouseInterval) { clearInterval(mouseInterval); mouseInterval = null; }
@@ -59,12 +100,10 @@ function createWindow() {
 
   mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
 
-  // Preview mode — close on any click or keypress
+  // Preview mode — close on blur
   if (isPreview) {
-    mainWindow.webContents.on('did-finish-load', () => {
-      mainWindow.webContents.on('before-input-event', (event, input) => {
-        if (input.type === 'keyDown') mainWindow.close();
-      });
+    mainWindow.webContents.on('before-input-event', (event, input) => {
+      if (input.type === 'keyDown') mainWindow.close();
     });
     mainWindow.on('blur', () => mainWindow && mainWindow.close());
     return;
@@ -77,12 +116,10 @@ function createWindow() {
     if (!initialized) {
       initialized = true;
 
-      // Record starting mouse position
       const pos = screen.getCursorScreenPoint();
       mouseStartX = pos.x;
       mouseStartY = pos.y;
 
-      // Poll mouse every 100ms — exit on movement > 2px
       mouseInterval = setInterval(() => {
         try {
           const cur = screen.getCursorScreenPoint();
@@ -98,12 +135,10 @@ function createWindow() {
         }
       }, 100);
 
-      // Exit on any keypress
       mainWindow.webContents.on('before-input-event', (event, input) => {
         if (input.type === 'keyDown') exitScreensaver();
       });
 
-      // Start background scan after 3 seconds
       setTimeout(startBackgroundScan, 3000);
     }
   });
@@ -111,28 +146,21 @@ function createWindow() {
   mainWindow.on('closed', () => { mainWindow = null; });
 }
 
-// ── ClamAV ────────────────────────────────────────────────────────────────
-function findClamAV() {
-  const paths = [
-    'C:\\ClamAV\\clamscan.exe',
-    'C:\\Program Files\\ClamAV\\clamscan.exe',
-  ];
-  for (const p of paths) {
-    if (fs.existsSync(p)) return p;
-  }
-  return 'clamscan';
-}
-
 function startBackgroundScan() {
   const clamscan = findClamAV();
-  const scanArgs = ['--recursive', '--infected', '--no-summary', '--stdout', 'C:\\Users'];
+  const scanArgs = ['--recursive', '--no-summary', '--stdout', 'C:\\Users'];
   const proc = spawn(clamscan, scanArgs, { windowsHide: true });
   activeScan = proc;
   let fileCount = 0;
+  let buffer = '';
 
   proc.stdout.on('data', (data) => {
-    const lines = data.toString().split('\n').filter(Boolean);
+    buffer += data.toString();
+    const lines = buffer.split('\n');
+    buffer = lines.pop();
     lines.forEach((line) => {
+      line = line.trim();
+      if (!line) return;
       const foundMatch = line.match(/^(.+):\s+(.+)\s+FOUND$/i);
       const okMatch    = line.match(/^(.+):\s+OK$/i);
       if (foundMatch) {
@@ -141,7 +169,7 @@ function startBackgroundScan() {
         setTimeout(() => exitScreensaver(threat), 3000);
       } else if (okMatch) {
         fileCount++;
-        if (fileCount % 25 === 0) mainWindow?.webContents.send('scan-progress', { fileCount });
+        if (fileCount % 10 === 0) mainWindow?.webContents.send('scan-progress', { fileCount });
       }
     });
   });
@@ -153,7 +181,6 @@ function startBackgroundScan() {
   });
 }
 
-// ── IPC ───────────────────────────────────────────────────────────────────
 ipcMain.on('exit-screensaver', () => exitScreensaver());
 
 app.whenReady().then(createWindow);

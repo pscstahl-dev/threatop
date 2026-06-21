@@ -22,8 +22,9 @@
     },
     "extraResources": [
       {
-        "from": "install-screensaver.bat",
-        "to": "../Install Screensaver.bat"
+        "from": "clamav-bin/",
+        "to": "clamav-bin",
+        "filter": ["**/*"]
       }
     ]
   }
