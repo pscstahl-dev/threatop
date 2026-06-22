@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Threat-Op — The world's first functional security screensaver. Built by a retired law enforcement officer. Free malware scanner for Windows.">
+<meta property="og:title" content="Threat-Op — Built by Law Enforcement">
+<meta property="og:description" content="The world's first functional security screensaver. Scans for threats while your computer is idle.">
+<meta property="og:url" content="https://threatop.io">
+<title>Threat-Op — Built by Law Enforcement</title>
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<style>
+  *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+  :root {
+    --blue:#00c8ff; --blue-dim:rgba(0,200,255,0.1); --blue-glow:rgba(0,200,255,0.2);
+    --red:#ff2d2d; --green:#00ff88; --amber:#ffaa00;
+    --bg:#020810; --panel:#060e1a; --panel2:#080f1c;
+    --border:rgba(0,200,255,0.15); --border2:rgba(0,200,255,0.08);
+    --text:#c8e8ff; --text-dim:rgba(200,232,255,0.55); --text-muted:rgba(200,232,255,0.35);
+    --font:'Courier New','Lucida Console',monospace;
+    --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  }
+  html { scroll-behavior:smooth; }
+  body { background:var(--bg); color:var(--text); font-family:var(--sans); line-height:1.6; overflow-x:hidden; }
+
+  /* Nav */
+  nav {
+    position:fixed; top:0; left:0; right:0; z-index:100;
+    display:flex; align-items:center; padding:0 40px; height:60px;
+    background:rgba(2,8,16,0.95); border-bottom:1px solid var(--border);
+    backdrop-filter:blur(10px);
+  }
+  .nav-logo { font-family:var(--font); font-size:14px; letter-spacing:0.2em; color:var(--blue); text-decoration:none; }
+  .nav-links { display:flex; gap:32px; margin-left:auto; }
+  .nav-links a { color:var(--text-dim); text-decoration:none; font-size:13px; letter-spacing:0.05em; transition:color 0.2s; }
+  .nav-links a:hover { color:var(--blue); }
+  .nav-cta { background:var(--blue-dim); border:1px solid var(--blue); color:var(--blue); padding:8px 20px; font-size:12px; letter-spacing:0.1em; text-decoration:none; font-family:var(--font); text-transform:uppercase; transition:all 0.2s; }
+  .nav-cta:hover { background:var(--blue-glow); }
+
+  /* Hero */
+  .hero {
+    min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    padding:100px 40px 60px; text-align:center; position:relative; overflow:hidden;
+  }
+  .hero-grid {
+    position:absolute; top:0; left:0; right:0; bottom:0;
+    background-image:linear-gradient(rgba(0,200,255,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(0,200,255,0.03) 1px,transparent 1px);
+    background-size:60px 60px; pointer-events:none;
+  }
+  .hero-badge {
+    display:inline-block; font-family:var(--font); font-size:10px; letter-spacing:0.2em;
+    color:var(--amber); border:1px solid rgba(255,170,0,0.3); padding:6px 16px;
+    text-transform:uppercase; margin-bottom:32px;
+  }
+  .hero-title {
+    font-size:clamp(36px,6vw,72px); font-weight:700; line-height:1.1;
+    color:#fff; margin-bottom:24px; letter-spacing:-0.02em;
+  }
+  .hero-title span { color:var(--blue); }
+  .hero-subtitle {
+    font-size:clamp(16px,2vw,20px); color:var(--text-dim); max-width:600px;
+    margin:0 auto 48px; line-height:1.7;
+  }
+  .hero-buttons { display:flex; gap:16px; justify-content:center; flex-wrap:wrap; }
+  .btn-primary {
+    background:var(--blue); color:#020810; padding:14px 32px; font-size:14px;
+    font-weight:700; text-decoration:none; letter-spacing:0.05em; transition:all 0.2s;
+    display:inline-flex; align-items:center; gap:8px;
+  }
+  .btn-primary:hover { background:#33d4ff; }
+  .btn-secondary {
+    border:1px solid var(--border); color:var(--text); padding:14px 32px; font-size:14px;
+    text-decoration:none; letter-spacing:0.05em; transition:all 0.2s;
+    display:inline-flex; align-items:center; gap:8px;
+  }
+  .btn-secondary:hover { border-color:var(--blue); color:var(--blue); }
+  .hero-stats { display:flex; gap:48px; justify-content:center; margin-top:64px; flex-wrap:wrap; }
+  .hero-stat { text-align:center; }
+  .hero-stat-num { font-family:var(--font); font-size:28px; color:var(--blue); display:block; }
+  .hero-stat-label { font-size:12px; color:var(--text-muted); letter-spacing:0.1em; text-transform:uppercase; }
+
+  /* Section */
+  section { padding:80px 40px; max-width:1100px; margin:0 auto; }
+  .section-label { font-family:var(--font); font-size:10px; letter-spacing:0.25em; color:var(--blue); text-transform:uppercase; margin-bottom:16px; }
+  .section-title { font-size:clamp(28px,4vw,42px); font-weight:700; color:#fff; margin-bottom:16px; line-height:1.2; }
+  .section-sub { font-size:16px; color:var(--text-dim); max-width:560px; line-height:1.7; }
+  .divider { height:1px; background:var(--border2); margin:0 40px; }
+
+  /* Live threat map section */
+  .threat-map-section { padding:0 40px 0; max-width:none; margin:0; }
+  .threat-map-inner { max-width:1100px; margin:0 auto; padding:80px 0; }
+  .threat-map-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:32px; flex-wrap:wrap; gap:16px; }
+  .threat-map-title { font-size:clamp(24px,3vw,36px); font-weight:700; color:#fff; }
+  .threat-map-badge { font-family:var(--font); font-size:10px; letter-spacing:0.2em; color:var(--green); border:1px solid rgba(0,255,136,0.3); padding:6px 16px; text-transform:uppercase; animation:pulse-badge 2s ease-in-out infinite; }
+  @keyframes pulse-badge { 0%,100%{opacity:1} 50%{opacity:0.6} }
+  .threat-map-canvas-wrap { position:relative; width:100%; background:var(--panel); border:1px solid var(--border); overflow:hidden; }
+  #threat-map-canvas { display:block; width:100%; }
+  #threat-arc-canvas { position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; }
+  .threat-map-stats { display:grid; grid-template-columns:repeat(4,1fr); gap:1px; background:var(--border2); border:1px solid var(--border2); margin-top:1px; }
+  .tms-cell { background:var(--panel); padding:14px 20px; display:flex; flex-direction:column; gap:2px; }
+  .tms-label { font-size:9px; letter-spacing:0.15em; color:var(--text-muted); text-transform:uppercase; }
+  .tms-value { font-size:22px; color:var(--blue); font-family:var(--font); }
+  .tms-value.red { color:var(--red); }
+  .tms-value.green { color:var(--green); }
+  .threat-ticker { background:var(--bg); border:1px solid var(--border2); border-top:none; padding:10px 20px; font-family:var(--font); font-size:11px; color:var(--text-dim); white-space:nowrap; overflow:hidden; display:flex; gap:40px; }
+  .ticker-item { flex-shrink:0; }
+  .ticker-item.red { color:var(--red); }
+  .ticker-item.amber { color:var(--amber); }
+  .threat-map-canvas-wrap:-webkit-full-screen { width:100vw; height:100vh; background:#020810; }
+  .threat-map-canvas-wrap:fullscreen { width:100vw; height:100vh; background:#020810; }
+  .threat-map-canvas-wrap:fullscreen #threat-map-canvas { width:100% !important; height:100vh !important; }
+  .threat-map-canvas-wrap:fullscreen #threat-arc-canvas { width:100% !important; height:100vh !important; }
+  @media(max-width:768px) { .threat-map-section{padding:0 20px;} .threat-map-stats{grid-template-columns:1fr 1fr;} }
+  .features { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:1px; background:var(--border2); border:1px solid var(--border2); margin-top:48px; }
+  .feature { background:var(--panel); padding:32px; }
+  .feature-icon { font-size:24px; margin-bottom:16px; color:var(--blue); font-family:var(--font); }
+  .feature-title { font-size:16px; font-weight:600; color:#fff; margin-bottom:8px; }
+  .feature-desc { font-size:14px; color:var(--text-dim); line-height:1.6; }
+
+  /* Screensaver highlight */
+  .screensaver-section { background:var(--panel); border:1px solid var(--border); padding:60px 40px; margin:0 40px; max-width:none; }
+  .screensaver-inner { max-width:1100px; margin:0 auto; display:grid; grid-template-columns:1fr 1fr; gap:60px; align-items:center; }
+  .screensaver-badge { display:inline-block; font-family:var(--font); font-size:9px; letter-spacing:0.2em; color:var(--red); border:1px solid rgba(255,45,45,0.3); padding:4px 12px; text-transform:uppercase; margin-bottom:16px; }
+  .screensaver-visual { background:var(--bg); border:1px solid var(--border); padding:24px; font-family:var(--font); font-size:11px; color:var(--text-dim); line-height:2; }
+  .screensaver-visual .v-blue { color:var(--blue); }
+  .screensaver-visual .v-red { color:var(--red); }
+  .screensaver-visual .v-green { color:var(--green); }
+  .screensaver-visual .v-amber { color:var(--amber); }
+
+  /* Origin story */
+  .story-section { display:grid; grid-template-columns:1fr 1fr; gap:80px; align-items:center; }
+  blockquote { border-left:3px solid var(--blue); padding-left:24px; margin:32px 0; }
+  blockquote p { font-size:18px; color:var(--text); line-height:1.7; font-style:italic; margin-bottom:12px; }
+  blockquote cite { font-size:13px; color:var(--text-muted); letter-spacing:0.1em; }
+  .story-credentials { display:flex; flex-direction:column; gap:16px; margin-top:32px; }
+  .credential { display:flex; align-items:center; gap:12px; }
+  .credential-dot { width:8px; height:8px; background:var(--blue); flex-shrink:0; }
+  .credential-text { font-size:14px; color:var(--text-dim); }
+
+  /* Download section */
+  .download-section { text-align:center; }
+  .download-cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:24px; margin-top:48px; }
+  .download-card { background:var(--panel); border:1px solid var(--border); padding:32px; text-align:left; }
+  .download-card-title { font-size:18px; font-weight:600; color:#fff; margin-bottom:8px; }
+  .download-card-desc { font-size:13px; color:var(--text-dim); margin-bottom:24px; line-height:1.6; }
+  .download-card-tag { font-family:var(--font); font-size:9px; letter-spacing:0.15em; color:var(--green); border:1px solid rgba(0,255,136,0.2); padding:3px 10px; display:inline-block; margin-bottom:16px; }
+  .download-btn { display:block; text-align:center; background:var(--blue-dim); border:1px solid var(--blue); color:var(--blue); padding:10px; font-size:12px; letter-spacing:0.1em; text-decoration:none; font-family:var(--font); text-transform:uppercase; transition:all 0.2s; }
+  .download-btn:hover { background:var(--blue-glow); }
+
+  /* Scan CTA */
+  .scan-cta { background:linear-gradient(135deg,rgba(0,200,255,0.05),rgba(0,200,255,0.02)); border:1px solid var(--border); padding:60px 40px; text-align:center; margin:0 40px; }
+  .scan-cta h2 { font-size:32px; color:#fff; margin-bottom:16px; }
+  .scan-cta p { font-size:16px; color:var(--text-dim); margin-bottom:32px; }
+
+  /* Footer */
+  footer { border-top:1px solid var(--border2); padding:40px; margin-top:80px; }
+  .footer-inner { max-width:1100px; margin:0 auto; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:24px; }
+  .footer-logo { font-family:var(--font); font-size:12px; letter-spacing:0.2em; color:var(--blue); }
+  .footer-links { display:flex; gap:24px; flex-wrap:wrap; }
+  .footer-links a { color:var(--text-muted); text-decoration:none; font-size:12px; transition:color 0.2s; }
+  .footer-links a:hover { color:var(--text); }
+  .footer-copy { font-size:11px; color:var(--text-muted); }
+
+  @media (max-width:768px) {
+    nav { padding:0 20px; }
+    .nav-links { display:none; }
+    section { padding:60px 20px; }
+    .screensaver-inner { grid-template-columns:1fr; }
+    .story-section { grid-template-columns:1fr; }
+    .screensaver-section { margin:0 20px; padding:40px 20px; }
+    .scan-cta { margin:0 20px; }
+    .divider { margin:0 20px; }
+    .footer-inner { flex-direction:column; align-items:flex-start; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <a href="/" class="nav-logo">◈ Threat-Op</a>
+  <div class="nav-links">
+    <a href="/pages/scan.html">Scan a file</a>
+    <a href="/pages/download.html">Download</a>
+    <a href="https://github.com/pscstahl-dev/threatop" target="_blank">GitHub</a>
+    <a href="/pages/api.html">API</a>
+  </div>
+  <a href="/pages/scan.html" class="nav-cta" style="margin-left:24px;">Scan now</a>
+</nav>
+
+<!-- Hero -->
+<div class="hero">
+  <div class="hero-grid"></div>
+  <div class="hero-badge">World's first functional security screensaver</div>
+  <h1 class="hero-title">Built by law enforcement.<br><span>Designed to hunt threats.</span></h1>
+  <p class="hero-subtitle">Threat-Op scans your computer for malware while you're away — turning idle time into active defense. Free, open source, and built by a retired law enforcement officer.</p>
+  <div class="hero-buttons">
+    <a href="/pages/download.html" class="btn-primary">↓ Download for Windows</a>
+    <a href="/pages/scan.html" class="btn-secondary">Scan a file online →</a>
+  </div>
+  <div class="hero-stats">
+    <div class="hero-stat">
+      <span class="hero-stat-num">3.6M+</span>
+      <span class="hero-stat-label">Virus signatures</span>
+    </div>
+    <div class="hero-stat">
+      <span class="hero-stat-num">Free</span>
+      <span class="hero-stat-label">Open source</span>
+    </div>
+    <div class="hero-stat">
+      <span class="hero-stat-num">#1</span>
+      <span class="hero-stat-label">First of its kind</span>
+    </div>
+  </div>
+</div>
+
+<div class="divider"></div>
+
+<!-- Live Threat Map -->
+<div class="threat-map-section">
+  <div class="threat-map-inner">
+    <div class="threat-map-header">
+      <div>
+        <div class="section-label">Live global threat intelligence</div>
+        <div class="threat-map-title">Attacks happening right now.</div>
+      </div>
+      <div style="display:flex;gap:12px;align-items:center;">
+        <div class="threat-map-badge" id="otx-live-badge">● OTX CONNECTING...</div>
+        <button id="map-fullscreen-btn" onclick="toggleMapFullscreen()" style="font-family:var(--font);font-size:10px;letter-spacing:0.15em;color:var(--blue);border:1px solid var(--border);background:var(--blue-dim);padding:6px 14px;cursor:pointer;text-transform:uppercase;">⛶ Fullscreen</button>
+      </div>
+    </div>
+    <div class="threat-map-canvas-wrap">
+      <canvas id="threat-map-canvas" height="480"></canvas>
+      <canvas id="threat-arc-canvas"></canvas>
+    </div>
+    <div class="threat-map-stats">
+      <div class="tms-cell"><div class="tms-label">Active threat pulses</div><div class="tms-value" id="tms-pulses">—</div></div>
+      <div class="tms-cell"><div class="tms-label">Arcs fired</div><div class="tms-value red" id="tms-arcs">0</div></div>
+      <div class="tms-cell"><div class="tms-label">Countries targeted</div><div class="tms-value" id="tms-countries">—</div></div>
+      <div class="tms-cell"><div class="tms-label">Feed status</div><div class="tms-value green" id="tms-status" style="font-size:13px;padding-top:4px;">LOADING</div></div>
+    </div>
+    <div class="threat-ticker" id="threat-ticker">
+      <span class="ticker-item">Connecting to AlienVault OTX threat intelligence feed...</span>
+    </div>
+  </div>
+</div>
+<div class="screensaver-section">
+  <div class="screensaver-inner">
+    <div>
+      <div class="screensaver-badge">World first</div>
+      <h2 class="section-title">Your screensaver is now a security officer.</h2>
+      <p style="font-size:16px;color:var(--text-dim);line-height:1.7;margin-top:16px;">While other screensavers display fish tanks and slideshows, Threat-Op is scanning your hard drive — checking every file against 3.6 million virus signatures and displaying live global threat intelligence on a War Room command center display.</p>
+      <p style="font-size:16px;color:var(--text-dim);line-height:1.7;margin-top:16px;">If a threat is found, the red alert fires, your screen wakes up, and you're notified immediately.</p>
+      <p style="font-size:14px;color:var(--text-muted);margin-top:24px;font-style:italic;">Nobody has done this before. This is the first.</p>
+    </div>
+    <div class="screensaver-visual">
+      <div class="v-blue">◈ THREAT-OP — WAR ROOM</div>
+      <div style="margin-top:8px;">━━━━━━━━━━━━━━━━━━━━━━━━</div>
+      <div style="margin-top:8px;"><span class="v-green">●</span> ClamAV 1.5.2 — ONLINE</div>
+      <div><span class="v-blue">►</span> SCANNING: C:\Users\</div>
+      <div><span class="v-blue">►</span> Files checked: <span class="v-green">12,847</span></div>
+      <div><span class="v-blue">►</span> Threats found: <span class="v-green">0</span></div>
+      <div style="margin-top:8px;">━━━━━━━━━━━━━━━━━━━━━━━━</div>
+      <div style="margin-top:8px;"><span class="v-amber">⚡</span> OTX LIVE — 47 active pulses</div>
+      <div><span class="v-red">▲</span> Ransomware: Russia → US</div>
+      <div><span class="v-red">▲</span> C2: China → Germany</div>
+      <div><span class="v-amber">▲</span> Malware: Iran → Israel</div>
+      <div style="margin-top:8px;">━━━━━━━━━━━━━━━━━━━━━━━━</div>
+      <div style="margin-top:8px;color:rgba(200,232,255,0.3)">[ move mouse to exit ]</div>
+    </div>
+  </div>
+</div>
+
+<div class="divider" style="margin-top:0;"></div>
+
+<!-- Features -->
+<section>
+  <div class="section-label">Features</div>
+  <h2 class="section-title">A command center for your desktop.</h2>
+  <p class="section-sub">Every feature built with one goal — find threats before they find you.</p>
+  <div class="features">
+    <div class="feature">
+      <div class="feature-icon">◉</div>
+      <div class="feature-title">War Room radar UI</div>
+      <div class="feature-desc">Animated radar sweep with file blips and red threat indicators. Watch your scan happen in real time.</div>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">◈</div>
+      <div class="feature-title">Live world map</div>
+      <div class="feature-desc">Real-time global threat intelligence from AlienVault OTX displayed on an accurate Mercator world map.</div>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">⟶</div>
+      <div class="feature-title">Attack arc animations</div>
+      <div class="feature-desc">Missile-style arcs show active attacks flying from origin country to target — like NORAD, on your desktop.</div>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">⊘</div>
+      <div class="feature-title">Quarantine system</div>
+      <div class="feature-desc">One click quarantines any threat to a locked folder where it can't execute. Your files stay safe.</div>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">⚡</div>
+      <div class="feature-title">One-click scanning</div>
+      <div class="feature-desc">Quick scan PC or Full scan PC — no setup, no configuration. Just click and scan.</div>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">◐</div>
+      <div class="feature-title">Functional screensaver</div>
+      <div class="feature-desc">The world's first screensaver that actually does something useful — scans for threats while you're away.</div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- Origin story -->
+<section>
+  <div class="story-section">
+    <div>
+      <div class="section-label">The origin</div>
+      <h2 class="section-title">Built by someone who spent a career catching criminals.</h2>
+      <blockquote>
+        <p>"I spent decades in law enforcement catching criminals. When I retired, I wanted to keep hunting — just in a different way. Threat-Op is built the way a cop thinks: always watching, always scanning, never off duty."</p>
+        <cite>— Vince, Retired Law Enforcement Officer & Creator of Threat-Op</cite>
+      </blockquote>
+    </div>
+    <div>
+      <p style="font-size:16px;color:var(--text-dim);line-height:1.7;margin-bottom:24px;">Most security software is built by engineers who've never investigated a crime, never tracked a suspect, never had to make a split-second call on whether something is a threat.</p>
+      <p style="font-size:16px;color:var(--text-dim);line-height:1.7;margin-bottom:32px;">Threat-Op is different. It's built with the instincts of someone who hunted threats for a living — and the software shows it.</p>
+      <div class="story-credentials">
+        <div class="credential"><div class="credential-dot"></div><div class="credential-text">Decades of law enforcement experience</div></div>
+        <div class="credential"><div class="credential-dot"></div><div class="credential-text">First functional security screensaver — June 19, 2026</div></div>
+        <div class="credential"><div class="credential-dot"></div><div class="credential-text">Open source — MIT licensed</div></div>
+        <div class="credential"><div class="credential-dot"></div><div class="credential-text">Powered by ClamAV — 3.6 million signatures</div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- Download -->
+<section class="download-section">
+  <div class="section-label">Get Threat-Op</div>
+  <h2 class="section-title">Free for everyone. Always.</h2>
+  <p class="section-sub" style="margin:0 auto;">The desktop app and screensaver are free and open source. Developer API coming soon.</p>
+  <div class="download-cards">
+    <div class="download-card">
+      <div class="download-card-tag">Free</div>
+      <div class="download-card-title">Desktop App</div>
+      <div class="download-card-desc">The full War Room experience. Radar UI, world map, threat intel, quarantine system. Windows 10/11.</div>
+      <a href="/pages/download.html" class="download-btn">Download for Windows</a>
+    </div>
+    <div class="download-card">
+      <div class="download-card-tag">Free</div>
+      <div class="download-card-title">Screensaver</div>
+      <div class="download-card-desc">The world's first functional security screensaver. Scans while you're away. Wakes on threat.</div>
+      <a href="/pages/download.html" class="download-btn">Download screensaver</a>
+    </div>
+    <div class="download-card">
+      <div class="download-card-tag" style="color:var(--amber);border-color:rgba(255,170,0,0.2);">Coming soon</div>
+      <div class="download-card-title">Developer API</div>
+      <div class="download-card-desc">Integrate Threat-Op scanning into your own apps. REST API with Stripe billing. Built for developers.</div>
+      <a href="/pages/api.html" class="download-btn" style="border-color:var(--border);color:var(--text-dim);">Join waitlist</a>
+    </div>
+  </div>
+</section>
+
+<!-- Scan CTA -->
+<div class="scan-cta">
+  <h2>Want to scan a file right now?</h2>
+  <p>No download required. Upload any file and we'll scan it against 3.6 million virus signatures instantly.</p>
+  <a href="/pages/scan.html" class="btn-primary">Scan a file free →</a>
+</div>
+
+<footer>
+  <div class="footer-inner">
+    <div class="footer-logo">◈ Threat-Op</div>
+    <div class="footer-links">
+      <a href="/pages/scan.html">Scan</a>
+      <a href="/pages/download.html">Download</a>
+      <a href="/pages/api.html">API</a>
+      <a href="https://github.com/pscstahl-dev/threatop" target="_blank">GitHub</a>
+      <a href="/pages/terms.html">Terms</a>
+      <a href="/pages/privacy.html">Privacy</a>
+      <a href="/pages/disclaimer.html">Disclaimer</a>
+    </div>
+    <div class="footer-copy">© 2026 Threat-Op. Built by law enforcement.</div>
+  </div>
+</footer>
+
+<script>
+// ── Live Threat Map ────────────────────────────────────────────────────────
+var OTX_KEY = 'f2d04de83c3023d73cebf7e18f715964a54bd51187dbcba616ab76b38c7f14d0';
+var mapCanvas = document.getElementById('threat-map-canvas');
+var arcCanvas = document.getElementById('threat-arc-canvas');
+if (mapCanvas && arcCanvas) {
+  var mctx = mapCanvas.getContext('2d');
+  var actx = arcCanvas.getContext('2d');
+  var mapState = { blips:[], arcs:[], arcsFired:0, offscreenMap:null, topoLoaded:false, animFrame:null };
+
+  function resizeMapCanvases() {
+    var w = mapCanvas.parentElement.clientWidth;
+    var h = Math.min(480, Math.round(w * 0.45));
+    mapCanvas.width = w; mapCanvas.height = h;
+    arcCanvas.width = w; arcCanvas.height = h;
+    arcCanvas.style.height = h + 'px';
+    if (mapState.topoLoaded) renderWorldMap();
+  }
+
+  function mercProj(lat, lng, w, h) {
+    var x = (lng + 180) / 360 * w;
+    var latRad = lat * Math.PI / 180;
+    var mercN = Math.log(Math.tan(Math.PI/4 + latRad/2));
+    var y = h/2 - (h * mercN / (2 * Math.PI));
+    return {x:x, y:y};
+  }
+
+  var topoData = null;
+  function loadWorldMap() {
+    fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json')
+      .then(function(r){return r.json();})
+      .then(function(data) {
+        topoData = data;
+        var s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/topojson-client@3/dist/topojson-client.min.js';
+        s.onload = function() { mapState.topoLoaded=true; renderWorldMap(); startMapAnimation(); };
+        document.head.appendChild(s);
+      }).catch(function(){});
+  }
+
+  function renderWorldMap() {
+    var w=mapCanvas.width, h=mapCanvas.height;
+    if(!w||!h||!topoData||typeof topojson==='undefined') return;
+    var off=document.createElement('canvas'); off.width=w; off.height=h;
+    var ctx=off.getContext('2d');
+    ctx.fillStyle='rgba(0,15,35,0.95)'; ctx.fillRect(0,0,w,h);
+    ctx.strokeStyle='rgba(0,200,255,0.04)'; ctx.lineWidth=0.5;
+    for(var lat=-80;lat<=80;lat+=20){ctx.beginPath();var fl=true;for(var ln=-180;ln<=180;ln+=2){var p=mercProj(lat,ln,w,h);fl?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y);fl=false;}ctx.stroke();}
+    for(var lng=-180;lng<=180;lng+=30){ctx.beginPath();var fl2=true;for(var la=-85;la<=85;la+=2){var p2=mercProj(la,lng,w,h);fl2?ctx.moveTo(p2.x,p2.y):ctx.lineTo(p2.x,p2.y);fl2=false;}ctx.stroke();}
+    var countries=topojson.feature(topoData,topoData.objects.countries);
+    ctx.fillStyle='rgba(0,55,85,0.8)'; ctx.strokeStyle='rgba(0,200,255,0.2)'; ctx.lineWidth=0.5;
+    countries.features.forEach(function(f){
+      var g=f.geometry; if(!g) return;
+      var polys=g.type==='Polygon'?[g.coordinates]:g.type==='MultiPolygon'?g.coordinates:[];
+      ctx.beginPath();
+      polys.forEach(function(poly){poly.forEach(function(ring){var ff=true;ring.forEach(function(c){var pp=mercProj(c[1],c[0],w,h);ff?ctx.moveTo(pp.x,pp.y):ctx.lineTo(pp.x,pp.y);ff=false;});ctx.closePath();});});
+      ctx.fill(); ctx.stroke();
+    });
+    mapState.offscreenMap=off;
+  }
+
+  function drawMapFrame() {
+    var w=mapCanvas.width, h=mapCanvas.height;
+    mctx.clearRect(0,0,w,h);
+    if(mapState.offscreenMap) mctx.drawImage(mapState.offscreenMap,0,0);
+    else { mctx.fillStyle='rgba(0,15,35,0.95)'; mctx.fillRect(0,0,w,h); }
+    mapState.blips=mapState.blips.filter(function(b){return b.age<300;});
+    mapState.blips.forEach(function(b){
+      b.age++;
+      var p=mercProj(b.lat,b.lng,w,h);
+      var alpha=Math.max(0,1-b.age/300);
+      var pulse=Math.abs(Math.sin(Date.now()/600+b.lat));
+      var color=b.type==='malware'?'255,45,45':b.type==='c2'?'255,170,0':'0,200,255';
+      if(b.age<60){mctx.beginPath();mctx.arc(p.x,p.y,b.age*0.3,0,Math.PI*2);mctx.strokeStyle='rgba('+color+','+(1-b.age/60)*0.5+')';mctx.lineWidth=1;mctx.stroke();}
+      mctx.beginPath();mctx.arc(p.x,p.y,2+pulse*1.5,0,Math.PI*2);mctx.fillStyle='rgba('+color+','+alpha+')';mctx.fill();
+    });
+
+    // Arcs
+    actx.clearRect(0,0,w,h);
+    mapState.arcs=mapState.arcs.filter(function(a){return a.age<200;});
+    mapState.arcs.forEach(function(arc){
+      if(!arc.done) arc.progress=Math.min(1,arc.progress+0.01);
+      if(arc.progress>=1) arc.done=true;
+      if(arc.done) arc.age++;
+      var mx=(arc.x1+arc.x2)/2, my=(arc.y1+arc.y2)/2;
+      var dx=arc.x2-arc.x1, dy=arc.y2-arc.y1;
+      var dist=Math.sqrt(dx*dx+dy*dy);
+      var cpx=mx, cpy=my-dist*0.4;
+      var t=arc.progress;
+      var steps=Math.floor(t*60)+1;
+      var alpha=arc.done?Math.max(0,1-arc.age/200):1;
+      actx.beginPath();
+      for(var i=0;i<=steps;i++){var ti=(i/steps)*t;var bx=Math.pow(1-ti,2)*arc.x1+2*(1-ti)*ti*cpx+Math.pow(ti,2)*arc.x2;var by=Math.pow(1-ti,2)*arc.y1+2*(1-ti)*ti*cpy+Math.pow(ti,2)*arc.y2;i===0?actx.moveTo(bx,by):actx.lineTo(bx,by);}
+      actx.strokeStyle='rgba('+arc.color+','+alpha*0.8+')';actx.lineWidth=1.5;actx.stroke();
+      if(!arc.done){var hx=Math.pow(1-t,2)*arc.x1+2*(1-t)*t*cpx+Math.pow(t,2)*arc.x2;var hy=Math.pow(1-t,2)*arc.y1+2*(1-t)*t*cpy+Math.pow(t,2)*arc.y2;actx.beginPath();actx.arc(hx,hy,3,0,Math.PI*2);actx.fillStyle='rgba('+arc.color+',1)';actx.fill();}
+      if(arc.done&&arc.age<60){actx.beginPath();actx.arc(arc.x2,arc.y2,arc.age*0.5,0,Math.PI*2);actx.strokeStyle='rgba('+arc.color+','+(1-arc.age/60)*0.7+')';actx.lineWidth=1.5;actx.stroke();}
+      actx.beginPath();actx.arc(arc.x1,arc.y1,2.5,0,Math.PI*2);actx.fillStyle='rgba('+arc.color+','+alpha*0.6+')';actx.fill();
+    });
+
+    mapState.animFrame = requestAnimationFrame(drawMapFrame);
+  }
+
+  function startMapAnimation() { if(mapState.animFrame) cancelAnimationFrame(mapState.animFrame); drawMapFrame(); }
+
+  function spawnArc(fromLat,fromLng,toLat,toLng,color) {
+    var w=mapCanvas.width,h=mapCanvas.height;
+    var from=mercProj(fromLat,fromLng,w,h);
+    var to=mercProj(toLat,toLng,w,h);
+    mapState.arcs.push({x1:from.x,y1:from.y,x2:to.x,y2:to.y,progress:0,color:color||'255,45,45',done:false,age:0});
+    mapState.arcsFired++;
+    document.getElementById('tms-arcs').textContent=mapState.arcsFired;
+  }
+
+  var COUNTRY_COORDS = {
+    'United States':[38,-97],'Russia':[60,100],'China':[35,105],'Germany':[51,10],
+    'United Kingdom':[54,-2],'France':[46,2],'Brazil':[-15,-47],'India':[20,77],
+    'Japan':[36,138],'Australia':[-25,133],'Canada':[56,-106],'South Korea':[37,128],
+    'Iran':[32,53],'Ukraine':[49,32],'Netherlands':[52,5],'Italy':[42,12],
+    'Spain':[40,-4],'Poland':[52,20],'Sweden':[62,15],'Singapore':[1,104],
+    'Israel':[31,35],'Turkey':[39,35],'Mexico':[23,-102],'Argentina':[-34,-64],
+    'South Africa':[-29,25],'Nigeria':[10,8],'Egypt':[27,30],'Saudi Arabia':[25,45],
+    'Pakistan':[30,70],'Indonesia':[-5,120],'Romania':[46,25],'Belgium':[50,4],
+    'Norway':[60,10],'Denmark':[56,10],'Finland':[61,26],'Portugal':[39,-8],
+    'Thailand':[15,101],'Vietnam':[16,108],'Philippines':[13,122],'Taiwan':[23,121]
+  };
+  var HOTSPOTS=[[38,-97],[60,100],[35,105],[51,10],[54,-2],[46,2],[36,138],[-15,-47],[20,77],[32,53],[49,32],[37,128],[23,-102],[1,104],[31,35],[39,35],[60,10],[-25,133],[56,-106],[27,30],[25,45],[10,8]];
+
+  var tickerItems = [];
+
+  function fetchOTXForMap() {
+    fetch('https://otx.alienvault.com/api/v1/pulses/subscribed?limit=20', {headers:{'X-OTX-API-KEY':OTX_KEY}})
+      .then(function(r){return r.json();})
+      .then(function(data) {
+        var badge = document.getElementById('otx-live-badge');
+        badge.textContent = '● OTX LIVE';
+        badge.style.color = 'var(--green)';
+        badge.style.borderColor = 'rgba(0,255,136,0.3)';
+        document.getElementById('tms-pulses').textContent = data.count || (data.results&&data.results.length) || '—';
+        document.getElementById('tms-status').textContent = 'LIVE';
+
+        var countries = {};
+        tickerItems = [];
+
+        (data.results||[]).forEach(function(pulse) {
+          var type = pulse.tags&&pulse.tags.indexOf('ransomware')>=0?'malware':pulse.tags&&pulse.tags.indexOf('c2')>=0?'c2':'intel';
+          var color = type==='malware'?'255,45,45':type==='c2'?'255,170,0':'0,200,255';
+
+          (pulse.targeted_countries||[]).forEach(function(country) {
+            countries[country] = true;
+            var coords = COUNTRY_COORDS[country];
+            if (coords) {
+              mapState.blips.push({lat:coords[0]+(Math.random()-0.5)*4,lng:coords[1]+(Math.random()-0.5)*4,age:Math.floor(Math.random()*60),type:type});
+              var origin = HOTSPOTS[Math.floor(Math.random()*HOTSPOTS.length)];
+              var delay = Math.random() * 8000;
+              (function(o,c,col){ setTimeout(function(){ spawnArc(o[0],o[1],c[0],c[1],col); },delay); })(origin,coords,color);
+            }
+          });
+
+          if (pulse.indicator_count > 0) {
+            var pt = HOTSPOTS[Math.floor(Math.random()*HOTSPOTS.length)];
+            var pt2 = HOTSPOTS[Math.floor(Math.random()*HOTSPOTS.length)];
+            mapState.blips.push({lat:pt[0]+(Math.random()-0.5)*8,lng:pt[1]+(Math.random()-0.5)*8,age:Math.floor(Math.random()*80),type:type});
+            setTimeout(function(){ spawnArc(pt[0],pt[1],pt2[0],pt2[1],color); }, Math.random()*12000);
+          }
+
+          var countries_str = (pulse.targeted_countries||[]).slice(0,2).join(', ') || 'Global';
+          tickerItems.push({ text: pulse.name || 'Unknown threat', countries: countries_str, type: type });
+        });
+
+        document.getElementById('tms-countries').textContent = Object.keys(countries).length || '—';
+        updateTicker();
+      })
+      .catch(function() {
+        document.getElementById('otx-live-badge').textContent = '● OTX OFFLINE';
+        document.getElementById('tms-status').textContent = 'OFFLINE';
+      });
+  }
+
+  var tickerIndex = 0;
+  function updateTicker() {
+    if (!tickerItems.length) return;
+    var ticker = document.getElementById('threat-ticker');
+    ticker.innerHTML = '';
+    for (var i = 0; i < Math.min(8, tickerItems.length); i++) {
+      var idx = (tickerIndex + i) % tickerItems.length;
+      var item = tickerItems[idx];
+      var span = document.createElement('span');
+      span.className = 'ticker-item ' + (item.type==='malware'?'red':item.type==='c2'?'amber':'');
+      span.textContent = (item.type==='malware'?'⚠ ':item.type==='c2'?'● ':'◈ ') + item.text + ' → ' + item.countries;
+      ticker.appendChild(span);
+    }
+    tickerIndex = (tickerIndex + 1) % tickerItems.length;
+  }
+
+  // Ambient arcs to keep map alive
+  function spawnAmbientArc() {
+    var from=HOTSPOTS[Math.floor(Math.random()*HOTSPOTS.length)];
+    var to=HOTSPOTS[Math.floor(Math.random()*HOTSPOTS.length)];
+    if(from!==to) spawnArc(from[0],from[1],to[0],to[1],'0,200,255');
+  }
+
+  window.addEventListener('resize', function() { resizeMapCanvases(); if(mapState.topoLoaded) renderWorldMap(); });
+  resizeMapCanvases();
+  loadWorldMap();
+  fetchOTXForMap();
+  setInterval(fetchOTXForMap, 5*60*1000);
+  setInterval(spawnAmbientArc, 8000);
+  setInterval(updateTicker, 3000);
+}
+function toggleMapFullscreen() {
+  var el = document.querySelector('.threat-map-canvas-wrap');
+  if (!document.fullscreenElement) {
+    el.requestFullscreen().catch(function(e){ console.log(e); });
+    document.getElementById('map-fullscreen-btn').textContent = '⛶ Exit';
+  } else {
+    document.exitFullscreen();
+    document.getElementById('map-fullscreen-btn').textContent = '⛶ Fullscreen';
+  }
+}
+document.addEventListener('fullscreenchange', function() {
+  if (!document.fullscreenElement) {
+    document.getElementById('map-fullscreen-btn').textContent = '⛶ Fullscreen';
+    mapCanvas.style.width = '';
+    mapCanvas.style.height = '';
+    arcCanvas.style.width = '';
+    arcCanvas.style.height = '';
+    resizeMapCanvases();
+    if(mapState.topoLoaded) renderWorldMap();
+  } else {
+    var w = screen.width;
+    var h = screen.height;
+    mapCanvas.width = w; mapCanvas.height = h;
+    arcCanvas.width = w; arcCanvas.height = h;
+    mapCanvas.style.width = w+'px';
+    mapCanvas.style.height = h+'px';
+    arcCanvas.style.width = w+'px';
+    arcCanvas.style.height = h+'px';
+    if(mapState.topoLoaded) renderWorldMap();
+  }
+});
+</script>
+</body>
+</html>
