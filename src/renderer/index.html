@@ -164,6 +164,10 @@
 var OTX_KEY = 'f2d04de83c3023d73cebf7e18f715964a54bd51187dbcba616ab76b38c7f14d0';
 var OTX_BASE = 'https://otx.alienvault.com/api/v1';
 
+// ── Platform detection ────────────────────────────────────────────────────
+var IS_LINUX = window.warroom && window.warroom.platform === 'linux';
+var ROOT_PATH = IS_LINUX ? '/' : 'C:\\';
+
 var state = {
   scanning: false,
   targets: [],
@@ -282,7 +286,6 @@ function drawGeoFeature(ctx, feature, size) {
 }
 
 // ── Arc animations ────────────────────────────────────────────────────────
-// arc: { x1,y1, x2,y2, progress, color, done }
 function spawnArc(fromLat, fromLng, toLat, toLng, color) {
   var size = state.canvasSize; if (!size) return;
   var from = mercatorProject(fromLat, fromLng, size);
@@ -307,13 +310,11 @@ function drawArcs() {
     var dx = arc.x2 - arc.x1;
     var dy = arc.y2 - arc.y1;
     var dist = Math.sqrt(dx*dx + dy*dy);
-    // Arc peak height proportional to distance
     var peakH = dist * 0.45;
     var cpx = mx;
     var cpy = my - peakH;
 
     var t = arc.progress;
-    // Draw trail: series of points from 0 to t along bezier
     var steps = Math.floor(t * 60) + 1;
     var alpha = arc.done ? Math.max(0, 1 - arc.age/180) : 1;
 
@@ -328,7 +329,6 @@ function drawArcs() {
     actx.lineWidth = 1.5;
     actx.stroke();
 
-    // Missile head — dot at current tip
     if (!arc.done) {
       var hx = Math.pow(1-t,2)*arc.x1 + 2*(1-t)*t*cpx + Math.pow(t,2)*arc.x2;
       var hy = Math.pow(1-t,2)*arc.y1 + 2*(1-t)*t*cpy + Math.pow(t,2)*arc.y2;
@@ -338,7 +338,6 @@ function drawArcs() {
       actx.fill();
     }
 
-    // Impact explosion at destination
     if (arc.done && arc.age < 60) {
       var r = arc.age * 0.6;
       var ea = 1 - arc.age/60;
@@ -353,7 +352,6 @@ function drawArcs() {
       actx.fill();
     }
 
-    // Origin dot
     actx.beginPath();
     actx.arc(arc.x1, arc.y1, 2.5, 0, Math.PI*2);
     actx.fillStyle = 'rgba(' + arc.color + ',' + (alpha*0.6) + ')';
@@ -490,22 +488,15 @@ function fetchOTX() {
         var date=new Date(pulse.modified).toLocaleDateString();
         var countries=pulse.targeted_countries&&pulse.targeted_countries.length?pulse.targeted_countries.join(', '):'Global';
         item.innerHTML='<div class="otx-item-name">'+(pulse.name||'Unknown threat')+'</div><div class="otx-item-meta">'+countries+' - '+date+'</div>';
-
-        // Clicking an OTX pulse fires arc animations for that threat
         (function(p) {
           item.addEventListener('click', function() { fireArcForPulse(p); });
         })(pulse);
-
         feed.appendChild(item);
-
         var type=pulse.tags&&pulse.tags.indexOf('ransomware')>=0?'malware':pulse.tags&&pulse.tags.indexOf('c2')>=0?'c2':'intel';
-
-        // Spawn map blips for targeted countries + arcs from likely origins
         (pulse.targeted_countries||[]).forEach(function(country) {
           var coords=COUNTRY_COORDS[country];
           if (coords) {
             state.mapBlips.push({lat:coords[0]+(Math.random()-0.5)*4,lng:coords[1]+(Math.random()-0.5)*4,age:Math.floor(Math.random()*60),type:type,label:pulse.name});
-            // Fire arc from a random hotspot to this target
             if (Math.random()<0.4) {
               var origin=HOTSPOTS[Math.floor(Math.random()*HOTSPOTS.length)];
               setTimeout(function(){spawnAttackArc(origin,coords,type);},Math.random()*5000);
@@ -531,7 +522,6 @@ function fireArcForPulse(pulse) {
   });
 }
 
-// Periodic ambient arcs to keep the map alive
 function spawnAmbientArc() {
   var from=HOTSPOTS[Math.floor(Math.random()*HOTSPOTS.length)];
   var to=HOTSPOTS[Math.floor(Math.random()*HOTSPOTS.length)];
@@ -694,7 +684,7 @@ function handleScanEvent(ev) {
 // ── Button handlers ───────────────────────────────────────────────────────
 document.getElementById('btn-quick-pc').addEventListener('click', function() {
   if (state.scanning) return;
-  state.targets=['C:\\'];
+  state.targets = [ROOT_PATH];
   state.mode='quick';
   document.getElementById('target-display').textContent='Scanning entire PC - quick mode';
   document.querySelectorAll('.mode-btn').forEach(function(b){b.classList.remove('active');});
@@ -705,7 +695,7 @@ document.getElementById('btn-quick-pc').addEventListener('click', function() {
 
 document.getElementById('btn-full-pc').addEventListener('click', function() {
   if (state.scanning) return;
-  state.targets=['C:\\'];
+  state.targets = [ROOT_PATH];
   state.mode='full';
   document.getElementById('target-display').textContent='Scanning entire PC - full mode (this may take a while)';
   document.querySelectorAll('.mode-btn').forEach(function(b){b.classList.remove('active');});

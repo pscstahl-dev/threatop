@@ -3,6 +3,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('warroom', {
+  platform:             process.platform,
   selectTarget:         ()       => ipcRenderer.invoke('select-target'),
   checkClamAV:          ()       => ipcRenderer.invoke('check-clamav'),
   startScan:            (opts)   => ipcRenderer.invoke('start-scan', opts),

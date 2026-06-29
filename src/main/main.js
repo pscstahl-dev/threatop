@@ -23,7 +23,6 @@ function createWindow() {
     minWidth: 1100,
     minHeight: 700,
     backgroundColor: '#020810',
-    // titleBarOverlay is Windows/macOS only — skip on Linux
     ...(IS_LINUX ? {} : {
       titleBarStyle: 'hidden',
       titleBarOverlay: {
@@ -56,7 +55,6 @@ const CLAMAV_WIN_DIR = 'C:\\ClamAV';
 
 function findClamAV() {
   if (IS_LINUX) {
-    // On Linux, ClamAV is installed system-wide via apt/dnf/etc.
     const linuxPaths = [
       '/usr/bin/clamscan',
       '/usr/local/bin/clamscan',
@@ -65,11 +63,9 @@ function findClamAV() {
     for (const p of linuxPaths) {
       if (fs.existsSync(p)) return { clamscan: p };
     }
-    // Fall back to PATH lookup
     return { clamscan: 'clamscan' };
   }
 
-  // Windows: check installed location, bundled resources, then common paths
   const installedPath = path.join(CLAMAV_WIN_DIR, 'clamscan.exe');
   if (fs.existsSync(installedPath)) return { clamscan: installedPath };
 
@@ -91,7 +87,6 @@ function findClamAV() {
   return { clamscan: 'clamscan' };
 }
 
-// Windows-only: copy bundled ClamAV to C:\ClamAV and run freshclam
 function installBundledClamAV(bundledDir) {
   if (!IS_WIN) return;
   try {
@@ -133,13 +128,11 @@ function ensureQuarantineDir() {
   return dir;
 }
 
-// Elevated move fallback: PowerShell on Windows, pkexec on Linux
 function elevatedMove(src, dest) {
   return new Promise((resolve) => {
     const { exec: execCmd } = require('child_process');
     let cmd;
     if (IS_LINUX) {
-      // pkexec is the graphical sudo equivalent on most Linux desktops
       cmd = `pkexec mv "${src}" "${dest}"`;
     } else {
       cmd = `powershell -command "Copy-Item '${src}' '${dest}'; Remove-Item '${src}' -Force"`;
@@ -199,8 +192,8 @@ ipcMain.handle('restore-file', async (event, { quarantinePath, originalPath }) =
 });
 
 // ── Scan ───────────────────────────────────────────────────────────────────
-let activeScan   = null;
-let scanPaused   = false;
+let activeScan  = null;
+let scanPaused  = false;
 
 ipcMain.handle('select-target', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
@@ -228,8 +221,19 @@ ipcMain.handle('start-scan', async (event, { paths, mode }) => {
   if (mode === 'full') args.push('--scan-archive=yes', '--max-recursion=10');
   args.push(...paths);
 
-  const spawnOpts = IS_WIN ? { windowsHide: true } : {};
-  const proc = spawn(clamscan, args, spawnOpts);
+  // ── KEY FIX: On Linux use stdbuf to force line-buffered stdout so the
+  //    Electron renderer gets real-time per-file updates instead of waiting
+  //    for the OS pipe buffer to fill up.
+  let proc;
+  if (IS_LINUX) {
+    // stdbuf -oL = line-buffered stdout; fall back gracefully if not found
+    proc = spawn('stdbuf', ['-oL', clamscan, ...args], {
+      env: { ...process.env },
+    });
+  } else {
+    proc = spawn(clamscan, args, { windowsHide: true });
+  }
+
   activeScan = proc;
 
   let fileCount   = 0;
@@ -257,7 +261,8 @@ ipcMain.handle('start-scan', async (event, { paths, mode }) => {
         mainWindow?.webContents.send('scan-event', { type: 'threat', ...threat, fileCount, threatCount });
       } else if (okMatch) {
         fileCount++;
-        if (fileCount % 10 === 0) {
+        // Send update every file on Linux for real-time count, every 10 on Windows
+        if (IS_LINUX || fileCount % 10 === 0) {
           mainWindow?.webContents.send('scan-event', { type: 'clean', file: okMatch[1].trim(), fileCount, threatCount });
         }
       }
@@ -268,6 +273,14 @@ ipcMain.handle('start-scan', async (event, { paths, mode }) => {
     const msg = data.toString();
     if (!msg.includes('LibClamAV') && !msg.includes('fmap')) {
       mainWindow?.webContents.send('scan-event', { type: 'error', message: msg });
+    }
+  });
+
+  // Handle stdbuf not being found — fall back to direct clamscan spawn
+  proc.on('error', (err) => {
+    if (IS_LINUX && err.code === 'ENOENT') {
+      console.log('stdbuf not found, falling back to direct clamscan spawn');
+      activeScan = spawn(clamscan, args, { env: { ...process.env } });
     }
   });
 
@@ -294,7 +307,6 @@ ipcMain.handle('pause-scan', async () => {
   if (!activeScan || scanPaused) return { paused: false };
 
   if (IS_LINUX) {
-    // SIGSTOP suspends a process on Linux — no shell needed
     try { process.kill(activeScan.pid, 'SIGSTOP'); } catch (_) {}
   } else {
     const pid = activeScan.pid;
@@ -309,7 +321,6 @@ ipcMain.handle('resume-scan', async () => {
   if (!activeScan || !scanPaused) return { resumed: false };
 
   if (IS_LINUX) {
-    // SIGCONT resumes a SIGSTOP'd process
     try { process.kill(activeScan.pid, 'SIGCONT'); } catch (_) {}
   } else {
     const pid = activeScan.pid;
@@ -325,19 +336,16 @@ ipcMain.handle('open-file-location', async (event, filePath) => {
 });
 
 ipcMain.handle('update-definitions', async () => {
-  let freshclam;
   if (IS_LINUX) {
-    // On Linux freshclam is on PATH; may need pkexec for write access to /var/lib/clamav
-    freshclam = 'pkexec';
     return new Promise((resolve) => {
-      const proc = spawn(freshclam, ['freshclam']);
+      const proc = spawn('pkexec', ['freshclam']);
       let log = '';
       proc.stdout.on('data', d => { log += d.toString(); });
       proc.stderr.on('data', d => { log += d.toString(); });
       proc.on('close', code => resolve({ success: code === 0, log }));
     });
   } else {
-    freshclam = path.join(CLAMAV_WIN_DIR, 'freshclam.exe');
+    const freshclam = path.join(CLAMAV_WIN_DIR, 'freshclam.exe');
     return new Promise((resolve) => {
       const proc = spawn(freshclam, [], { windowsHide: true });
       let log = '';
