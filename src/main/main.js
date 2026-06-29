@@ -6,27 +6,38 @@ const { spawn, exec } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 
+// ── Platform helpers ───────────────────────────────────────────────────────
+const IS_WIN   = process.platform === 'win32';
+const IS_LINUX = process.platform === 'linux';
+
 let mainWindow;
 
 function createWindow() {
+  const iconFile = IS_WIN
+    ? path.join(__dirname, '../../build/icon.ico')
+    : path.join(__dirname, '../../build/icon.png');
+
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
     minWidth: 1100,
     minHeight: 700,
     backgroundColor: '#020810',
-    titleBarStyle: 'hidden',
-    titleBarOverlay: {
-      color: '#020810',
-      symbolColor: '#00c8ff',
-      height: 36,
-    },
+    // titleBarOverlay is Windows/macOS only — skip on Linux
+    ...(IS_LINUX ? {} : {
+      titleBarStyle: 'hidden',
+      titleBarOverlay: {
+        color: '#020810',
+        symbolColor: '#00c8ff',
+        height: 36,
+      },
+    }),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
     },
-    icon: path.join(__dirname, '../../build/icon.ico'),
+    icon: fs.existsSync(iconFile) ? iconFile : undefined,
   });
 
   mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
@@ -40,24 +51,35 @@ app.whenReady().then(createWindow);
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 
-// ── ClamAV detection ──────────────────────────────────────────────────────
-const CLAMAV_INSTALL_DIR = 'C:\\ClamAV';
+// ── ClamAV detection ───────────────────────────────────────────────────────
+const CLAMAV_WIN_DIR = 'C:\\ClamAV';
 
 function findClamAV() {
-  // Check if we've already installed ClamAV to C:\ClamAV
-  const installedPath = path.join(CLAMAV_INSTALL_DIR, 'clamscan.exe');
+  if (IS_LINUX) {
+    // On Linux, ClamAV is installed system-wide via apt/dnf/etc.
+    const linuxPaths = [
+      '/usr/bin/clamscan',
+      '/usr/local/bin/clamscan',
+      '/opt/homebrew/bin/clamscan',
+    ];
+    for (const p of linuxPaths) {
+      if (fs.existsSync(p)) return { clamscan: p };
+    }
+    // Fall back to PATH lookup
+    return { clamscan: 'clamscan' };
+  }
+
+  // Windows: check installed location, bundled resources, then common paths
+  const installedPath = path.join(CLAMAV_WIN_DIR, 'clamscan.exe');
   if (fs.existsSync(installedPath)) return { clamscan: installedPath };
 
-  // Check bundled ClamAV in app resources
   const bundledDir = path.join(process.resourcesPath || path.join(__dirname, '../../'), 'clamav-bin');
   const bundledPath = path.join(bundledDir, 'clamscan.exe');
   if (fs.existsSync(bundledPath)) {
-    // Install bundled ClamAV to C:\ClamAV for future use
     installBundledClamAV(bundledDir);
     return { clamscan: bundledPath };
   }
 
-  // Check common install paths
   const winPaths = [
     'C:\\Program Files\\ClamAV\\clamscan.exe',
     'C:\\Program Files (x86)\\ClamAV\\clamscan.exe',
@@ -69,23 +91,24 @@ function findClamAV() {
   return { clamscan: 'clamscan' };
 }
 
+// Windows-only: copy bundled ClamAV to C:\ClamAV and run freshclam
 function installBundledClamAV(bundledDir) {
+  if (!IS_WIN) return;
   try {
-    if (!fs.existsSync(CLAMAV_INSTALL_DIR)) {
-      fs.mkdirSync(CLAMAV_INSTALL_DIR, { recursive: true });
+    if (!fs.existsSync(CLAMAV_WIN_DIR)) {
+      fs.mkdirSync(CLAMAV_WIN_DIR, { recursive: true });
     }
-    // Copy bundled ClamAV to C:\ClamAV
     const { execSync } = require('child_process');
-    execSync(`xcopy "${bundledDir}\\*" "${CLAMAV_INSTALL_DIR}\\" /E /I /Y /Q`, { windowsHide: true });
-    // Run freshclam to get virus definitions
-    const freshclam = path.join(CLAMAV_INSTALL_DIR, 'freshclam.exe');
-    const conf = path.join(CLAMAV_INSTALL_DIR, 'freshclam.conf');
+    execSync(`xcopy "${bundledDir}\\*" "${CLAMAV_WIN_DIR}\\" /E /I /Y /Q`, { windowsHide: true });
+
+    const freshclam = path.join(CLAMAV_WIN_DIR, 'freshclam.exe');
+    const conf      = path.join(CLAMAV_WIN_DIR, 'freshclam.conf');
     if (!fs.existsSync(conf)) {
-      const sampleConf = path.join(CLAMAV_INSTALL_DIR, 'conf_examples', 'freshclam.conf.sample');
+      const sampleConf = path.join(CLAMAV_WIN_DIR, 'conf_examples', 'freshclam.conf.sample');
       if (fs.existsSync(sampleConf)) {
-        let confContent = fs.readFileSync(sampleConf, 'utf8');
-        confContent = confContent.replace(/^Example/m, '#Example');
-        fs.writeFileSync(conf, confContent);
+        let content = fs.readFileSync(sampleConf, 'utf8');
+        content = content.replace(/^Example/m, '#Example');
+        fs.writeFileSync(conf, content);
       }
     }
     if (fs.existsSync(freshclam)) {
@@ -96,76 +119,88 @@ function installBundledClamAV(bundledDir) {
   }
 }
 
-// ── Quarantine ────────────────────────────────────────────────────────────
-const QUARANTINE_DIR = 'C:\\ThreatOp\\Quarantine';
+// ── Quarantine ─────────────────────────────────────────────────────────────
+function getQuarantineDir() {
+  if (IS_LINUX) {
+    return path.join(os.homedir(), '.local', 'share', 'threatop', 'quarantine');
+  }
+  return 'C:\\ThreatOp\\Quarantine';
+}
 
 function ensureQuarantineDir() {
-  if (!fs.existsSync(QUARANTINE_DIR)) {
-    fs.mkdirSync(QUARANTINE_DIR, { recursive: true });
-  }
+  const dir = getQuarantineDir();
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+// Elevated move fallback: PowerShell on Windows, pkexec on Linux
+function elevatedMove(src, dest) {
+  return new Promise((resolve) => {
+    const { exec: execCmd } = require('child_process');
+    let cmd;
+    if (IS_LINUX) {
+      // pkexec is the graphical sudo equivalent on most Linux desktops
+      cmd = `pkexec mv "${src}" "${dest}"`;
+    } else {
+      cmd = `powershell -command "Copy-Item '${src}' '${dest}'; Remove-Item '${src}' -Force"`;
+    }
+    execCmd(cmd, (err) => {
+      resolve(fs.existsSync(dest)
+        ? { success: true, destPath: dest }
+        : { success: false, error: err ? err.message : 'Unknown error' });
+    });
+  });
 }
 
 ipcMain.handle('quarantine-file', async (event, filePath) => {
-  ensureQuarantineDir();
-  const fileName = path.basename(filePath);
-  const timestamp = Date.now();
-  const destName = `${timestamp}_${fileName}.quarantine`;
-  const destPath = path.join(QUARANTINE_DIR, destName);
+  const quarantineDir = ensureQuarantineDir();
+  const fileName  = path.basename(filePath);
+  const destPath  = path.join(quarantineDir, `${Date.now()}_${fileName}.quarantine`);
 
-  // Try rename first (fastest)
   try {
     fs.renameSync(filePath, destPath);
     return { success: true, destPath };
-  } catch (err) {}
+  } catch (_) {}
 
-  // Try copy + delete
   try {
     fs.copyFileSync(filePath, destPath);
     fs.unlinkSync(filePath);
     return { success: true, destPath };
-  } catch (err) {}
+  } catch (_) {}
 
-  // Fall back to PowerShell with admin rights for protected files
+  return elevatedMove(filePath, destPath);
+});
+
+ipcMain.handle('open-quarantine-folder', async () => {
+  const dir = ensureQuarantineDir();
+  shell.openPath(dir);
+});
+
+ipcMain.handle('restore-file', async (event, { quarantinePath, originalPath }) => {
+  try {
+    fs.renameSync(quarantinePath, originalPath);
+    return { success: true };
+  } catch (_) {}
+
+  const { exec: execCmd } = require('child_process');
   return new Promise((resolve) => {
-    const { exec: execCmd } = require('child_process');
-    const cmd = `powershell -command "Copy-Item '${filePath}' '${destPath}'; Remove-Item '${filePath}' -Force"`;
+    let cmd;
+    if (IS_LINUX) {
+      cmd = `pkexec mv "${quarantinePath}" "${originalPath}"`;
+    } else {
+      cmd = `powershell -command "Copy-Item '${quarantinePath}' '${originalPath}'; Remove-Item '${quarantinePath}' -Force"`;
+    }
     execCmd(cmd, (err) => {
-      if (fs.existsSync(destPath)) {
-        resolve({ success: true, destPath });
-      } else {
-        resolve({ success: false, error: err ? err.message : 'Unknown error' });
-      }
+      resolve(fs.existsSync(originalPath)
+        ? { success: true }
+        : { success: false, error: err ? err.message : 'Unknown error' });
     });
   });
 });
 
-ipcMain.handle('open-quarantine-folder', async () => {
-  ensureQuarantineDir();
-  shell.openPath(QUARANTINE_DIR);
-});
-
-ipcMain.handle('restore-file', async (event, { quarantinePath, originalPath }) => {
-  return new Promise((resolve) => {
-    try {
-      fs.renameSync(quarantinePath, originalPath);
-      resolve({ success: true });
-    } catch (err) {
-      const { exec: execCmd } = require('child_process');
-      const cmd = `powershell -command "Copy-Item '${quarantinePath}' '${originalPath}'; Remove-Item '${quarantinePath}' -Force"`;
-      execCmd(cmd, (err2) => {
-        if (fs.existsSync(originalPath)) {
-          resolve({ success: true });
-        } else {
-          resolve({ success: false, error: err2 ? err2.message : 'Unknown error' });
-        }
-      });
-    }
-  });
-});
-
-// ── Scan ──────────────────────────────────────────────────────────────────
-let activeScan = null;
-let scanPaused = false;
+// ── Scan ───────────────────────────────────────────────────────────────────
+let activeScan   = null;
+let scanPaused   = false;
 
 ipcMain.handle('select-target', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
@@ -189,18 +224,18 @@ ipcMain.handle('start-scan', async (event, { paths, mode }) => {
   if (activeScan) return { error: 'Scan already running' };
 
   const { clamscan } = findClamAV();
-  // Remove --infected so we get ALL file output for counting
   const args = ['--recursive', '--no-summary', '--stdout'];
   if (mode === 'full') args.push('--scan-archive=yes', '--max-recursion=10');
   args.push(...paths);
 
-  const proc = spawn(clamscan, args, { windowsHide: true });
+  const spawnOpts = IS_WIN ? { windowsHide: true } : {};
+  const proc = spawn(clamscan, args, spawnOpts);
   activeScan = proc;
 
-  let fileCount = 0;
+  let fileCount   = 0;
   let threatCount = 0;
-  const threats = [];
-  let buffer = '';
+  const threats   = [];
+  let buffer      = '';
 
   proc.stdout.on('data', (data) => {
     buffer += data.toString();
@@ -222,7 +257,6 @@ ipcMain.handle('start-scan', async (event, { paths, mode }) => {
         mainWindow?.webContents.send('scan-event', { type: 'threat', ...threat, fileCount, threatCount });
       } else if (okMatch) {
         fileCount++;
-        // Update every 10 files to keep UI responsive without flooding IPC
         if (fileCount % 10 === 0) {
           mainWindow?.webContents.send('scan-event', { type: 'clean', file: okMatch[1].trim(), fileCount, threatCount });
         }
@@ -232,7 +266,6 @@ ipcMain.handle('start-scan', async (event, { paths, mode }) => {
 
   proc.stderr.on('data', (data) => {
     const msg = data.toString();
-    // Filter out noisy LibClamAV errors
     if (!msg.includes('LibClamAV') && !msg.includes('fmap')) {
       mainWindow?.webContents.send('scan-event', { type: 'error', message: msg });
     }
@@ -241,7 +274,6 @@ ipcMain.handle('start-scan', async (event, { paths, mode }) => {
   return new Promise((resolve) => {
     proc.on('close', (code) => {
       activeScan = null;
-      // Send final count on completion
       mainWindow?.webContents.send('scan-event', { type: 'complete', exitCode: code, fileCount, threatCount, threats });
       resolve({ fileCount, threatCount, threats });
     });
@@ -249,32 +281,43 @@ ipcMain.handle('start-scan', async (event, { paths, mode }) => {
 });
 
 ipcMain.handle('abort-scan', async () => {
-  if (activeScan) { activeScan.kill(); activeScan = null; scanPaused = false; return { aborted: true }; }
+  if (activeScan) {
+    activeScan.kill();
+    activeScan  = null;
+    scanPaused  = false;
+    return { aborted: true };
+  }
   return { aborted: false };
 });
 
 ipcMain.handle('pause-scan', async () => {
-  if (activeScan && !scanPaused) {
-    // Suspend the process on Windows using taskkill /F is too aggressive
-    // Instead we use the undocumented NtSuspendProcess via a PowerShell call
+  if (!activeScan || scanPaused) return { paused: false };
+
+  if (IS_LINUX) {
+    // SIGSTOP suspends a process on Linux — no shell needed
+    try { process.kill(activeScan.pid, 'SIGSTOP'); } catch (_) {}
+  } else {
     const pid = activeScan.pid;
-    const { exec: execCmd } = require('child_process');
-    execCmd(`powershell -command "$proc = Get-Process -Id ${pid}; $proc.Suspend()"`, () => {});
-    scanPaused = true;
-    return { paused: true };
+    exec(`powershell -command "$proc = Get-Process -Id ${pid}; $proc.Suspend()"`);
   }
-  return { paused: false };
+
+  scanPaused = true;
+  return { paused: true };
 });
 
 ipcMain.handle('resume-scan', async () => {
-  if (activeScan && scanPaused) {
+  if (!activeScan || !scanPaused) return { resumed: false };
+
+  if (IS_LINUX) {
+    // SIGCONT resumes a SIGSTOP'd process
+    try { process.kill(activeScan.pid, 'SIGCONT'); } catch (_) {}
+  } else {
     const pid = activeScan.pid;
-    const { exec: execCmd } = require('child_process');
-    execCmd(`powershell -command "$proc = Get-Process -Id ${pid}; $proc.Resume()"`, () => {});
-    scanPaused = false;
-    return { resumed: true };
+    exec(`powershell -command "$proc = Get-Process -Id ${pid}; $proc.Resume()"`);
   }
-  return { resumed: false };
+
+  scanPaused = false;
+  return { resumed: true };
 });
 
 ipcMain.handle('open-file-location', async (event, filePath) => {
@@ -282,12 +325,25 @@ ipcMain.handle('open-file-location', async (event, filePath) => {
 });
 
 ipcMain.handle('update-definitions', async () => {
-  const freshclam = path.join(CLAMAV_INSTALL_DIR, 'freshclam.exe');
-  return new Promise((resolve) => {
-    const proc = spawn(freshclam, [], { windowsHide: true });
-    let log = '';
-    proc.stdout.on('data', d => { log += d.toString(); });
-    proc.stderr.on('data', d => { log += d.toString(); });
-    proc.on('close', code => resolve({ success: code === 0, log }));
-  });
+  let freshclam;
+  if (IS_LINUX) {
+    // On Linux freshclam is on PATH; may need pkexec for write access to /var/lib/clamav
+    freshclam = 'pkexec';
+    return new Promise((resolve) => {
+      const proc = spawn(freshclam, ['freshclam']);
+      let log = '';
+      proc.stdout.on('data', d => { log += d.toString(); });
+      proc.stderr.on('data', d => { log += d.toString(); });
+      proc.on('close', code => resolve({ success: code === 0, log }));
+    });
+  } else {
+    freshclam = path.join(CLAMAV_WIN_DIR, 'freshclam.exe');
+    return new Promise((resolve) => {
+      const proc = spawn(freshclam, [], { windowsHide: true });
+      let log = '';
+      proc.stdout.on('data', d => { log += d.toString(); });
+      proc.stderr.on('data', d => { log += d.toString(); });
+      proc.on('close', code => resolve({ success: code === 0, log }));
+    });
+  }
 });
