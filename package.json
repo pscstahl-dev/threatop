@@ -2,6 +2,10 @@
   "name": "warroom-scanner",
   "version": "0.1.0",
   "description": "War Room — ClamAV-powered threat scanner",
+  "author": {
+    "name": "Vince Stahl",
+    "email": "pscstahl@gmail.com"
+  },
   "main": "src/main/main.js",
   "scripts": {
     "start": "electron .",
